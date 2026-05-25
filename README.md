@@ -1,11 +1,13 @@
 # Grok Clone
 
-A Grok-style AI chat application built with Next.js, Supabase, and Vercel AI SDK.
+A Grok-style AI chat application built with Next.js, Supabase, and the xAI/OpenAI-compatible APIs.
 
 ## Features
 
 - 🎨 Grok-inspired dark theme UI
-- 💬 Streaming AI responses via OpenAI-compatible API
+- 💬 Streaming AI responses with visible thinking/search/timing status
+- 🔎 Optional Grok Web Search via the xAI Responses API
+- 𝕏 Optional X Search toggle, disabled by default
 - 📝 Chat session history with CRUD operations
 - 💾 Persistent storage with Supabase PostgreSQL
 - 🔐 Supabase Auth (email/password)
@@ -14,7 +16,7 @@ A Grok-style AI chat application built with Next.js, Supabase, and Vercel AI SDK
 ## Tech Stack
 
 - **Frontend**: Next.js 16 (App Router), React 19, Tailwind CSS 4
-- **Backend**: Vercel AI SDK, OpenAI-compatible API
+- **Backend**: Next.js Route Handlers, xAI Responses API, OpenAI-compatible fallback
 - **Database**: Supabase (PostgreSQL + Auth)
 - **Deployment**: Vercel
 
@@ -41,9 +43,12 @@ cp .env.local.example .env.local
 | `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
-| `OPENAI_API_KEY` | Your OpenAI-compatible API key |
-| `OPENAI_API_BASE_URL` | API base URL (default: `https://api.openai.com/v1`) |
-| `OPENAI_MODEL` | Default model (default: `gpt-4o`) |
+| `XAI_API_KEY` or `OPENAI_API_KEY` | xAI/OpenAI-compatible API key |
+| `OPENAI_API_BASE_URL` | API base URL (default: `https://api.x.ai/v1`) |
+| `OPENAI_MODEL_FAST` | Fast mode model (default: `grok-4.3`, `reasoning.effort=none`) |
+| `OPENAI_MODEL_AUTO` | Auto mode model (default: `grok-4.3`, `reasoning.effort=low`) |
+| `OPENAI_MODEL_EXPERT` | Expert mode model (default: `grok-4.3`, `reasoning.effort=high`) |
+| `GROK_USE_RESPONSES_API` | Set to `false` to force Chat Completions fallback |
 
 ### 3. Install & Run
 

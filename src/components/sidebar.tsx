@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type { ChatSession } from "@/lib/types";
 import { clsx } from "clsx";
+import { GrokLogo } from "@/components/grok-logo";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -86,6 +87,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     } catch {
       // ignore
     }
+  }
+
+  function handleHome() {
+    router.push("/");
   }
 
   async function handleDelete(id: string, e: React.MouseEvent) {
@@ -169,6 +174,13 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     return (
       <div className="flex h-full w-14 shrink-0 flex-col items-center border-r border-border bg-sidebar py-3">
         <button
+          onClick={handleHome}
+          aria-label="Go to home"
+          className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-sidebar-hover"
+        >
+          <GrokLogo className="h-4 w-8" />
+        </button>
+        <button
           onClick={onToggle}
           className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
         >
@@ -195,12 +207,22 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     <div className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-sidebar">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-3">
-        <button
-          onClick={onToggle}
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
-        >
-          <PanelLeftClose className="h-5 w-5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleHome}
+            aria-label="Go to home"
+            className="flex h-9 w-16 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-sidebar-hover"
+          >
+            <GrokLogo className="h-6 w-15" />
+          </button>
+          <button
+            onClick={onToggle}
+            aria-label="Collapse sidebar"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+          >
+            <PanelLeftClose className="h-5 w-5" />
+          </button>
+        </div>
         <button
           onClick={handleNewChat}
           className="flex h-9 items-center gap-2 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"

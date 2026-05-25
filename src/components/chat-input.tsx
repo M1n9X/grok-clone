@@ -10,6 +10,7 @@ import {
   Brain,
   Sparkles,
   Check,
+  Search,
 } from "lucide-react";
 import { clsx } from "clsx";
 
@@ -37,7 +38,12 @@ export const MODELS = [
 export type ModelId = (typeof MODELS)[number]["id"];
 
 interface ChatInputProps {
-  onSend: (message: string, model: string) => void;
+  onSend: (
+    message: string,
+    model: string,
+    webSearch: boolean,
+    xSearch: boolean
+  ) => void;
   isLoading: boolean;
   onStop: () => void;
   placeholder?: string;
@@ -51,6 +57,8 @@ export function ChatInput({
 }: ChatInputProps) {
   const [input, setInput] = useState("");
   const [model, setModel] = useState<ModelId>("auto");
+  const [webSearch, setWebSearch] = useState(false);
+  const [xSearch, setXSearch] = useState(false);
   const [showModels, setShowModels] = useState(false);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -95,7 +103,7 @@ export function ChatInput({
 
   function handleSubmit() {
     if (isEmpty || isLoading) return;
-    onSend(input.trim(), model);
+    onSend(input.trim(), model, webSearch, xSearch);
     setInput("");
   }
 
@@ -119,6 +127,28 @@ export function ChatInput({
             rows={1}
             className="my-1.5 max-h-[200px] min-h-6 min-w-0 flex-1 resize-none bg-transparent px-2 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground"
           />
+
+          <button
+            type="button"
+            onClick={() => setWebSearch((value) => !value)}
+            aria-pressed={webSearch}
+            className={clsx(
+              "mb-0.5 flex h-9 shrink-0 items-center gap-2 rounded-full px-2.5 text-sm transition-colors",
+              webSearch
+                ? "bg-foreground text-background"
+                : "text-foreground hover:bg-sidebar-hover"
+            )}
+          >
+            <Search className="h-[17px] w-[17px] shrink-0" />
+            <span
+              className={clsx(
+                "overflow-hidden whitespace-nowrap transition-all duration-300",
+                isEmpty ? "max-w-20 opacity-100" : "max-w-0 opacity-0"
+              )}
+            >
+              Search
+            </span>
+          </button>
 
           {/* Model picker — inline, matches Grok original */}
           <button
@@ -221,6 +251,44 @@ export function ChatInput({
                   </span>
                 </button>
               ))}
+              <div className="my-1 border-t border-border" />
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setXSearch((value) => !value);
+                }}
+                className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-sidebar-hover"
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center font-semibold text-xs text-foreground">
+                    X
+                  </span>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="text-sm font-medium text-foreground">
+                      Enable X Search
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Search X alongside the response
+                    </span>
+                  </span>
+                </span>
+                <span
+                  className={clsx(
+                    "relative h-5 w-9 shrink-0 rounded-full border transition-colors",
+                    xSearch
+                      ? "border-foreground bg-foreground"
+                      : "border-border bg-muted"
+                  )}
+                >
+                  <span
+                    className={clsx(
+                      "absolute top-0.5 h-3.5 w-3.5 rounded-full bg-background transition-transform",
+                      xSearch ? "translate-x-[18px]" : "translate-x-0.5"
+                    )}
+                  />
+                </span>
+              </button>
             </div>
           </>,
           document.body

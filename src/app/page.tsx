@@ -4,12 +4,18 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/sidebar";
 import { ChatInput } from "@/components/chat-input";
+import { GrokLogo } from "@/components/grok-logo";
 
 export default function HomePage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const router = useRouter();
 
-  async function handleSend(content: string, model: string = "auto") {
+  async function handleSend(
+    content: string,
+    model: string = "auto",
+    webSearch: boolean = false,
+    xSearch: boolean = false
+  ) {
     // Create a new session and redirect
     const res = await fetch("/api/sessions", {
       method: "POST",
@@ -24,7 +30,7 @@ export default function HomePage() {
       // Store pending message + model for the chat page to pick up
       window.sessionStorage.setItem(
         `pending-msg-${session.id}`,
-        JSON.stringify({ content, model })
+        JSON.stringify({ content, model, webSearch, xSearch })
       );
       // Flag for sidebar to refresh sessions
       window.sessionStorage.setItem("refreshSessions", "true");
@@ -40,22 +46,7 @@ export default function HomePage() {
       />
 
       <main className="flex flex-1 flex-col items-center justify-center overflow-hidden">
-        {/* Grok-style logo */}
-        <div className="mb-8">
-          <svg
-            className="mx-auto h-12 w-12 text-foreground"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M12 2L2 7l10 5 10-5-10-5z" />
-            <path d="M2 17l10 5 10-5" />
-            <path d="M2 12l10 5 10-5" />
-          </svg>
-        </div>
+        <GrokLogo className="mb-8 h-12 w-auto text-foreground" />
 
         <div className="w-full max-w-3xl px-4">
           <ChatInput

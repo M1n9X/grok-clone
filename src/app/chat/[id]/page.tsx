@@ -4,7 +4,16 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { Sidebar } from "@/components/sidebar";
 import { ChatInput } from "@/components/chat-input";
-import { ChatMessages, type Message } from "@/components/chat-messages";
+import {
+  ChatMessages,
+  type Message,
+  type MessageStreamState,
+} from "@/components/chat-messages";
+import {
+  decodeStreamEventLine,
+  parseTaggedThinkingSummary,
+} from "@/lib/chat-stream-events";
+import { GrokLogo } from "@/components/grok-logo";
 
 export default function ChatPage() {
   const params = useParams();
@@ -16,7 +25,12 @@ export default function ChatPage() {
   const abortRef = useRef<AbortController | null>(null);
   const initializedRef = useRef(false);
   const messagesRef = useRef<Message[]>([]);
-  const pendingMsgRef = useRef<{ content: string; model: string } | null>(null);
+  const pendingMsgRef = useRef<{
+    content: string;
+    model: string;
+    webSearch?: boolean;
+    xSearch?: boolean;
+  } | null>(null);
 
   // Keep ref in sync
   useEffect(() => {
@@ -42,18 +56,61 @@ export default function ChatPage() {
   );
 
   const streamResponse = useCallback(
-    async (apiMessages: { role: string; content: string }[], assistantId: string) => {
+    async (
+      apiMessages: { role: string; content: string }[],
+      assistantId: string,
+      model: string,
+      webSearch: boolean,
+      xSearch: boolean
+    ) => {
       setIsLoading(true);
       const abortController = new AbortController();
       abortRef.current = abortController;
 
       let fullContent = "";
+      let rawTextContent = "";
+      let eventThinking = "";
+      let taggedThinking = "";
+      let lineBuffer = "";
+      const streamStartedAt = Date.now();
+      const updateStream = (updater: (stream: MessageStreamState) => MessageStreamState) => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? {
+                  ...m,
+                  stream: updater(
+                    m.stream ?? {
+                      thinking: "",
+                      tools: [],
+                      startedAt: streamStartedAt,
+                      chunks: 0,
+                    }
+                  ),
+                }
+              : m
+          )
+        );
+      };
+      const updateContent = () => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, content: fullContent } : m
+          )
+        );
+      };
 
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: apiMessages, sessionId }),
+          body: JSON.stringify({
+            messages: apiMessages,
+            sessionId,
+            model,
+            webSearch,
+            xSearch,
+          }),
           signal: abortController.signal,
         });
 
@@ -77,12 +134,67 @@ export default function ChatPage() {
             const { done, value } = await reader.read();
             if (done) break;
 
-            fullContent += decoder.decode(value, { stream: true });
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId ? { ...m, content: fullContent } : m
-              )
-            );
+            lineBuffer += decoder.decode(value, { stream: true });
+            const lines = lineBuffer.split("\n");
+            lineBuffer = lines.pop() ?? "";
+
+            for (const line of lines) {
+              const event = decodeStreamEventLine(line);
+              if (!event) continue;
+
+              if (event.type === "status") {
+                updateStream((stream) => ({ ...stream, status: event.label }));
+              }
+
+              if (event.type === "thinking") {
+                eventThinking += event.delta;
+                updateStream((stream) => ({
+                  ...stream,
+                  status: "Thinking",
+                  thinking: `${eventThinking}${taggedThinking}`,
+                }));
+              }
+
+              if (event.type === "tool") {
+                updateStream((stream) => ({
+                  ...stream,
+                  status: `Using ${event.name}`,
+                  tools: [...stream.tools, event.name],
+                }));
+              }
+
+              if (event.type === "text") {
+                rawTextContent += event.delta;
+                const parsed = parseTaggedThinkingSummary(rawTextContent);
+                fullContent = parsed.content;
+                taggedThinking = parsed.thinking
+                  ? `${eventThinking ? "\n\n" : ""}${parsed.thinking}`
+                  : "";
+                const now = Date.now();
+                updateStream((stream) => ({
+                  ...stream,
+                  status: parsed.open ? "Thinking" : "Responding",
+                  thinking: `${eventThinking}${taggedThinking}`,
+                  firstTokenAt: stream.firstTokenAt ?? now,
+                  chunks: stream.chunks + 1,
+                }));
+                updateContent();
+              }
+
+              if (event.type === "usage") {
+                updateStream((stream) => ({
+                  ...stream,
+                  inputTokens: event.inputTokens,
+                  outputTokens: event.outputTokens,
+                  reasoningTokens: event.reasoningTokens,
+                  totalTokens: event.totalTokens,
+                }));
+              }
+
+              if (event.type === "error") {
+                throw new Error(event.message);
+              }
+            }
           }
         }
 
@@ -112,6 +224,11 @@ export default function ChatPage() {
       } finally {
         setIsLoading(false);
         abortRef.current = null;
+        updateStream((stream) => ({
+          ...stream,
+          status: fullContent.trim() ? "Complete" : stream.status,
+          completedAt: Date.now(),
+        }));
 
         // Save assistant message after stream completes
         if (fullContent.trim()) {
@@ -132,7 +249,12 @@ export default function ChatPage() {
     [sessionId]
   );
 
-  async function sendMessage(content: string, model: string = "auto") {
+  async function sendMessage(
+    content: string,
+    model: string = "auto",
+    webSearch: boolean = false,
+    xSearch: boolean = false
+  ) {
     if (!content.trim()) return;
 
     const userMessage: Message = {
@@ -146,6 +268,7 @@ export default function ChatPage() {
       id: assistantId,
       role: "assistant",
       content: "",
+      stream: createInitialStreamState(webSearch, xSearch),
     };
 
     setMessages((prev) => [...prev, userMessage, assistantMessage]);
@@ -162,7 +285,7 @@ export default function ChatPage() {
       content: m.content,
     }));
 
-    await streamResponse(apiMessages, assistantId);
+    await streamResponse(apiMessages, assistantId, model, webSearch, xSearch);
   }
 
   // Edit user message: replace content, discard subsequent messages, re-generate
@@ -184,6 +307,7 @@ export default function ChatPage() {
       id: assistantId,
       role: "assistant",
       content: "",
+      stream: createInitialStreamState(false, false),
     };
 
     const newMessages = [...keptMessages, editedUserMessage, assistantMessage];
@@ -202,7 +326,7 @@ export default function ChatPage() {
       content: m.content,
     }));
 
-    await streamResponse(apiMessages, assistantId);
+    await streamResponse(apiMessages, assistantId, "auto", false, false);
   }
 
   // Load existing messages on mount
@@ -252,7 +376,16 @@ export default function ChatPage() {
       const pending = pendingMsgRef.current;
       pendingMsgRef.current = null;
       if (pending) {
-        setTimeout(() => sendMessage(pending.content, pending.model), 100);
+        setTimeout(
+          () =>
+            sendMessage(
+              pending.content,
+              pending.model,
+              pending.webSearch ?? false,
+              pending.xSearch ?? false
+            ),
+          100
+        );
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -272,21 +405,7 @@ export default function ChatPage() {
       <main className="flex flex-1 flex-col overflow-hidden">
         {messages.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center">
-            <div className="mb-8">
-              <svg
-                className="mx-auto h-12 w-12 text-foreground"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5" />
-                <path d="M2 12l10 5 10-5" />
-              </svg>
-            </div>
+            <GrokLogo className="mb-8 h-12 w-auto text-foreground" />
             <ChatInput
               onSend={sendMessage}
               isLoading={isLoading}
@@ -318,4 +437,18 @@ export default function ChatPage() {
       </main>
     </div>
   );
+}
+
+function createInitialStreamState(
+  webSearch: boolean,
+  xSearch: boolean
+): MessageStreamState {
+  return {
+    status:
+      webSearch || xSearch ? "Preparing search" : "Preparing response",
+    thinking: "",
+    tools: [],
+    startedAt: Date.now(),
+    chunks: 0,
+  };
 }

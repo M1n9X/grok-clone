@@ -7,15 +7,33 @@ import {
   ThumbsDown,
   RefreshCw,
   Pencil,
+  ChevronDown,
+  Brain,
+  Search,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+export interface MessageStreamState {
+  status?: string;
+  thinking: string;
+  tools: string[];
+  startedAt?: number;
+  firstTokenAt?: number;
+  completedAt?: number;
+  chunks: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  totalTokens?: number;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  stream?: MessageStreamState;
 }
 
 interface ChatMessagesProps {
@@ -72,6 +90,7 @@ function ChatMessage({
 }) {
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [thinkingOpen, setThinkingOpen] = useState(true);
   const [editContent, setEditContent] = useState(message.content);
 
   async function handleCopy() {
@@ -153,14 +172,28 @@ function ChatMessage({
       ) : (
         <div className="flex flex-col items-start">
           <div className="w-full">
+            {message.stream && (
+              <ThinkingPanel
+                stream={message.stream}
+                isStreaming={isStreaming}
+                open={thinkingOpen}
+                onToggle={() => setThinkingOpen((value) => !value)}
+              />
+            )}
             <div className="prose-chat text-sm text-foreground">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {message.content}
               </ReactMarkdown>
-              {isStreaming && (
+              {isStreaming && message.content.length > 0 && (
                 <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-foreground" />
               )}
             </div>
+            {isStreaming && message.content.length === 0 && (
+              <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-foreground" />
+                <span>{message.stream?.status ?? "Thinking"}</span>
+              </div>
+            )}
           </div>
 
           {/* Assistant message actions */}
@@ -192,4 +225,128 @@ function ChatMessage({
       )}
     </div>
   );
+}
+
+function ThinkingPanel({
+  stream,
+  isStreaming,
+  open,
+  onToggle,
+}: {
+  stream: MessageStreamState;
+  isStreaming: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const [now, setNow] = useState<number | null>(null);
+  const hasThinking = stream.thinking.trim().length > 0;
+  const hasReasoningUsage =
+    stream.reasoningTokens !== undefined && stream.reasoningTokens > 0;
+  const currentEnd = stream.completedAt ?? now;
+  const elapsedMs =
+    currentEnd !== null && currentEnd !== undefined && stream.startedAt
+      ? currentEnd - stream.startedAt
+      : undefined;
+  const firstTokenMs =
+    stream.firstTokenAt && stream.startedAt
+      ? stream.firstTokenAt - stream.startedAt
+      : undefined;
+
+  useEffect(() => {
+    if (!isStreaming) {
+      return;
+    }
+
+    const tick = () => setNow(Date.now());
+    tick();
+    const interval = window.setInterval(tick, 250);
+    return () => window.clearInterval(interval);
+  }, [isStreaming]);
+
+  if (!isStreaming && !hasThinking && stream.tools.length === 0 && !firstTokenMs) {
+    return null;
+  }
+
+  return (
+    <div className="mb-3 rounded-xl border border-border bg-accent/70">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+      >
+        <span className="flex min-w-0 items-center gap-2 text-sm text-foreground">
+          <Brain className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="truncate">
+            {stream.status ?? (isStreaming ? "Thinking" : "Thought process")}
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+          {firstTokenMs !== undefined && (
+            <span className="font-mono tabular-nums">
+              first {formatDuration(firstTokenMs)}
+            </span>
+          )}
+          {elapsedMs !== undefined && (
+            <span className="font-mono tabular-nums">
+              {formatDuration(elapsedMs)}
+            </span>
+          )}
+          <ChevronDown
+            className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`}
+          />
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t border-border px-3 py-2">
+          {stream.tools.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {stream.tools.map((tool, index) => (
+                <span
+                  key={`${tool}-${index}`}
+                  className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
+                >
+                  <Search className="h-3 w-3" />
+                  {tool}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {hasThinking ? (
+            <div className="max-h-44 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-muted-foreground">
+              {stream.thinking}
+            </div>
+          ) : (
+            <div className="text-xs text-muted-foreground">
+              {isStreaming
+                ? "Waiting for reasoning summary or first token..."
+                : hasReasoningUsage
+                  ? "Reasoning tokens were used, but this provider did not stream a reasoning summary."
+                  : "No reasoning summary was returned for this response."}
+            </div>
+          )}
+
+          {(stream.reasoningTokens ?? stream.totalTokens) !== undefined && (
+            <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+              {stream.reasoningTokens !== undefined && (
+                <span>reasoning {stream.reasoningTokens}</span>
+              )}
+              {stream.outputTokens !== undefined && (
+                <span>output {stream.outputTokens}</span>
+              )}
+              {stream.totalTokens !== undefined && (
+                <span>total {stream.totalTokens}</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatDuration(ms: number) {
+  if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
