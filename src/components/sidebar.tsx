@@ -48,6 +48,17 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     fetchSessions();
   }, [fetchSessions, pathname]);
 
+  // Listen for title updates from chat page
+  useEffect(() => {
+    const handleTitleUpdate = () => {
+      fetchSessions();
+    };
+    window.addEventListener("sessionTitleUpdated", handleTitleUpdate);
+    return () => {
+      window.removeEventListener("sessionTitleUpdated", handleTitleUpdate);
+    };
+  }, [fetchSessions]);
+
   async function handleNewChat() {
     try {
       const res = await fetch("/api/sessions", {
