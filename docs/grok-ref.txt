@@ -1,0 +1,194 @@
+# Grok 第三方网关联网搜索实测指南
+
+> 网关地址：`https://jiuuij.de5.net/v1/chat/completions`  
+> 测试日期：2026-05-18
+
+---
+
+## 可用模型
+
+| 模型 | 搜索质量 | 推荐场景 |
+|------|----------|----------|
+| `grok-4.3-high` | ⭐⭐⭐ | 深度研究，精确引用，X搜索可靠 |
+| `grok-4.3-medium` | ⭐⭐⭐ | 日常使用，性价比最优，X搜索可靠 |
+| `grok-4.3-console` | ⭐⭐ | 一般查询，X搜索可靠 |
+| `grok-4.3-low` | ⭐⭐ | 快速简短回答，X搜索可靠 |
+| `grok-4.20-0309-console` | ⭐⭐⭐ | 深度研究，X搜索偶尔连接不稳定 |
+| `grok-4.20-0309-reasoning-console` | ⭐⭐⭐ | 推理模型，X搜索最可靠 |
+| `grok-4.20-multi-agent-console` | ⭐⭐ | 多代理模型，X搜索不稳定(有时返回空) |
+
+不可用：`grok-4.20-0309-non-reasoning-console`（倍率未配置）。
+
+---
+
+## 核心特性
+
+1. **内置联网搜索**：无需传 `search_parameters` 或 `tools`，模型自动触发 web 搜索。
+2. **强制流式响应**：无论 `stream` 设为 `true` 还是 `false`，均返回 SSE 流式格式。
+3. **支持 X/推特搜索**：通过 `tools` 或 `sources` 参数可切换到 X 平台搜索。
+
+---
+
+## 基础调用（Web 搜索）
+
+```python
+import requests, json
+
+resp = requests.post(
+    "https://jiuuij.de5.net/v1/chat/completions",
+    headers={
+        "Authorization": "Bearer YOUR_KEY",
+        "Content-Type": "application/json"
+    },
+    json={
+        "model": "grok-4.3-high",
+        "messages": [{"role": "user", "content": "今天最新科技新闻"}],
+        "max_tokens": 1024,
+        "stream": True
+    },
+    stream=True
+)
+
+content = ""
+for line in resp.iter_lines(decode_unicode=True):
+    if not line or not line.startswith("data: "):
+        continue
+    if line[6:].strip() == "[DONE]":
+        break
+    chunk = json.loads(line[6:])
+    c = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+    content += c
+
+print(content)
+```
+
+---
+
+## X/推特搜索
+
+两种写法均可触发：
+
+```json
+// 方式1: tools
+{
+  "model": "grok-4.3-high",
+  "messages": [{"role": "user", "content": "X上关于AI的最新讨论"}],
+  "tools": [{"type": "x_search"}],
+  "stream": true
+}
+
+// 方式2: search_parameters.sources
+{
+  "model": "grok-4.3-high",
+  "messages": [{"role": "user", "content": "X上关于AI的最新讨论"}],
+  "search_parameters": {"mode": "on", "sources": [{"type": "x"}]},
+  "stream": true
+}
+```
+
+---
+
+## 参数有效性实测
+
+> 测试方法：让 AI 在回复开头自我报告参数是否生效，如"【搜索参数报告】- 是否进行了搜索 - 是否从X获取了内容 - 搜索到的新闻日期是什么"等。
+
+### X 搜索
+
+| 模型 | `tools: [{type: x_search}]` | `search_parameters.sources: [{type: x}]` |
+|------|----------------------------|------------------------------------------|
+| `grok-4.3-high` | ✅ 报告"是/是/是"，x.com 链接 | — |
+| `grok-4.3-medium` | ✅ 报告"是/是/是"，x.com 链接 | — |
+| `grok-4.3-low` | ✅ 报告"是/是/是"，x.com 链接 | — |
+| `grok-4.3-console` | ✅ 报告"是/是/是"，x.com 链接 | — |
+| `grok-4.20-0309-console` | ⚠️ 偶尔连接断开 | ⚠️ 返回空 |
+| `grok-4.20-0309-reasoning` | ✅ 报告"是/是/是"，x.com 链接 | ✅ 报告"是/是/是"，x.com 链接 |
+| `grok-4.20-multi-agent` | ⚠️ 返回空 | ⚠️ 有内容但无链接 |
+
+**结论：X 搜索用 `tools` 方式，统一写 `{"tools": [{"type": "x_search"}]}`。4.3 系列全部可靠，4.20 仅 reasoning 稳定。**
+
+### max_search_results
+
+| 设定值 | 模型 | 输出字数 | AI 报告参考条数 | AI 自我评估 |
+|--------|------|----------|----------------|------------|
+| 3 | `grok-4.20-console` | 4743 | ~10 | 不确定是否生效 |
+| 3 | `grok-4.20-reasoning` | 2926 | 7 | 不确定是否生效 |
+| 3 | `grok-4.3-medium` | 3086 | 8 | 生效 |
+| 3 | `grok-4.3-high` | 3732 | 21 | 不确定是否生效 |
+| 10 | `grok-4.20-console` | 4500 | 8 | 不确定是否生效 |
+| 10 | `grok-4.20-multi-agent` | 4422 | ~10 | — |
+| 10 | `grok-4.3-low` | 1767 | 15 | 生效 |
+| 10 | `grok-4.3-medium` | 1251 | 20 | 生效 |
+| 10 | `grok-4.3-high` | 3754 | 20 | 不确定是否生效 |
+| 20 | `grok-4.20-console` | 3987 | 7 | 不确定是否生效 |
+| 20 | `grok-4.20-reasoning` | 4449 | 6 | 不确定是否生效 |
+| 20 | `grok-4.3-low` | 2607 | 10 | 不确定是否生效 |
+| 20 | `grok-4.3-medium` | 3663 | 10 | 生效 |
+| 20 | `grok-4.3-console` | 2125 | 10 | 不确定是否生效 |
+
+**分析：** 设定值 3/10/20 与 AI 实际参考的条数(6~21)无线性关联。部分模型（4.3-medium）持续报告"生效"但实际行为与其他模型无异。Grok 搜索是 agentic 的，模型自主决定搜索轮数和查看的结果数，`max_search_results` 仅为建议值。加之单次搜索结果质量高，几条即满足需求，设 3 还是 20 体感几乎无差异。实际控制结果量建议在 prompt 中声明（如"只列 3 条"）。
+
+**结论：`max_search_results` 与模型实际参考的搜索结果数量无明显关联。部分 AI 报告"生效"但实际行为不一致。此参数在此网关上无效。**
+
+### from_date / to_date
+
+| 模型 | 请求范围 | 模型实际返回日期 | AI 评估 |
+|------|----------|-----------------|---------|
+| `grok-4.20-0309-console` | 2025-12-01~05 | 12/1, 12/4, 12/5 | 报告"严格遵守" |
+| `grok-4.20-0309-reasoning` | 同上 | 12/1, 12/2, 12/4, 12/5 | AI 确认日期范围内 |
+| `grok-4.20-multi-agent` | 同上 | 12/1, 12/2, 12/5 (+少量12/3) | AI 确认日期范围内 |
+| `grok-4.3-low` | 同上 | 12/4, 12/5 | 报告"是" |
+| `grok-4.3-medium` | 同上 | 12/1, 12/2, 12/3 | 报告"是" |
+| `grok-4.3-high` | 同上 | 12/2, 12/3/4, 12/5 | AI 确认日期范围内 |
+| `grok-4.3-console` | 同上 | 12/1, 12/2, 12/5 | AI 确认日期范围内 |
+
+**结论：`from_date`/`to_date` 有效！所有模型都能返回指定日期范围的新闻。注意：本测试中 prompt 也声明了日期范围（prompt 与参数对齐），不确定纯参数是否独立生效，建议同时用 prompt 声明日期。**
+
+### allowed_domains (tools 方式)
+
+| 模型 | 结果 |
+|------|------|
+| `grok-4.3-console` | ✅ 唯一成功，模型报告"只从 techcrunch.com 获取了结果" |
+| 其余全部模型 | ❌ SSL/连接错误 |
+
+**结论：`allowed_domains` 在 `tools.web_search.filters` 格式下大概率触发网关错误。仅 `grok-4.3-console` 成功且似乎遵守了域名限制（530 字中所有 URL 均来自 techcrunch.com）。如需域名过滤，建议改为 prompt 描述（如"只搜索 techcrunch.com 的内容"）。**
+
+### 总结
+
+| 参数 | 状态 | 建议 |
+|------|------|------|
+| `tools: [{type: "x_search"}]` | ✅ 可靠 | 推荐用于 X 搜索 |
+| `from_date` / `to_date` | ✅ 有效 | prompt 也写上日期，双重保障 |
+| `max_search_results` | ❌ 无效 | 值与实际行为无关 |
+| `allowed_domains` (tools) | ❌ 触发错误 | 改用 prompt 描述域名限制 |
+
+---
+
+## curl 示例
+
+```bash
+curl -N "https://jiuuij.de5.net/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -d '{
+    "model": "grok-4.3-high",
+    "messages": [{"role": "user", "content": "搜索今天的AI新闻"}],
+    "max_tokens": 1024,
+    "stream": true
+  }'
+```
+
+注意 `-N` 禁用缓冲以正确接收 SSE 流。
+
+---
+
+## 响应格式
+
+强制 SSE 流，每行格式：
+
+```
+data: {"id":"chatcmpl-...","object":"chat.completion.chunk","created":...,"model":"grok-4.3-high","choices":[{"index":0,"delta":{"role":"assistant","content":"..."}}]}
+...
+data: [DONE]
+```
+
+拼接所有 `choices[0].delta.content` 即为完整回复。回复中通常包含 `[[n]](url)` 格式的引用链接。
