@@ -59,11 +59,18 @@ export default function ChatPage() {
       });
 
       if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(errorText || `Request failed (${res.status})`);
+        let errorMsg = `Request failed (${res.status})`;
+        try {
+          const errData = await res.json();
+          if (errData.error) errorMsg = errData.error;
+        } catch {
+          const text = await res.text();
+          if (text) errorMsg = text;
+        }
+        throw new Error(errorMsg);
       }
 
-      // Read plain text stream from toTextStreamResponse
+      // Read plain text stream (SSE already parsed server-side)
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       let fullContent = "";
@@ -73,25 +80,7 @@ export default function ChatPage() {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value, { stream: true });
-
-          // Detect error chunks from the stream
-          if (chunk.startsWith('{"error":')) {
-            try {
-              const errData = JSON.parse(chunk);
-              throw new Error(errData.error?.message ?? "Stream error");
-            } catch (e) {
-              if (e instanceof SyntaxError) {
-                // Not JSON, treat as normal text
-                fullContent += chunk;
-              } else {
-                throw e; // Re-throw our Error
-              }
-            }
-          } else {
-            fullContent += chunk;
-          }
-
+          fullContent += decoder.decode(value, { stream: true });
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId ? { ...m, content: fullContent } : m
