@@ -77,29 +77,12 @@ export async function POST(req: Request) {
   }
 
   // Parse SSE → extract text deltas → output as plain text stream
+  // Assistant message will be saved by the client after stream completes
   const upstream = apiRes.body;
   const sseReader = upstream.getReader();
   const sseDecoder = new TextDecoder();
   const encoder = new TextEncoder();
   let sseBuffer = "";
-  let fullContent = "";
-  let saved = false;
-
-  async function saveAssistantMessage() {
-    if (saved || !sessionId || !fullContent) return;
-    saved = true;
-    try {
-      const s = await createClient();
-      await s.from("chat_messages").insert({
-        session_id: sessionId,
-        user_id: userId,
-        role: "assistant",
-        content: fullContent,
-      });
-    } catch {
-      // Best effort
-    }
-  }
 
   const outputStream = new ReadableStream({
     async pull(controller) {
@@ -107,7 +90,6 @@ export async function POST(req: Request) {
         const { done, value } = await sseReader.read();
 
         if (done) {
-          await saveAssistantMessage();
           controller.close();
           return;
         }
@@ -122,7 +104,6 @@ export async function POST(req: Request) {
 
           const payload = trimmed.slice(6);
           if (payload === "[DONE]") {
-            await saveAssistantMessage();
             controller.close();
             return;
           }
@@ -137,16 +118,13 @@ export async function POST(req: Request) {
                   ? json.error
                   : json.error.message ?? "Stream error";
               const errText = `\n⚠️ ${errMsg}`;
-              fullContent += errText;
               controller.enqueue(encoder.encode(errText));
-              await saveAssistantMessage();
               controller.close();
               return;
             }
 
             const delta = json.choices?.[0]?.delta?.content;
             if (delta) {
-              fullContent += delta;
               controller.enqueue(encoder.encode(delta));
             }
           } catch {
@@ -155,13 +133,11 @@ export async function POST(req: Request) {
         }
       } catch (err) {
         console.error("[chat] stream error:", err);
-        await saveAssistantMessage();
         controller.close();
       }
     },
     cancel() {
       sseReader.cancel();
-      saveAssistantMessage();
     },
   });
 

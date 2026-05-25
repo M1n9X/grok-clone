@@ -45,6 +45,8 @@ export default function ChatPage() {
     const abortController = new AbortController();
     abortRef.current = abortController;
 
+    let fullContent = "";
+
     try {
       const apiMessages = [...messagesRef.current, userMessage].map((m) => ({
         role: m.role,
@@ -73,7 +75,6 @@ export default function ChatPage() {
       // Read plain text stream (SSE already parsed server-side)
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
-      let fullContent = "";
 
       if (reader) {
         while (true) {
@@ -89,35 +90,47 @@ export default function ChatPage() {
         }
       }
 
-      // If no content was streamed, show error
+      // If no content was streamed, show warning
       if (!fullContent.trim()) {
+        fullContent = "⚠️ No response received. The model may be temporarily unavailable.";
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId
-              ? { ...m, content: "⚠️ No response received. The model may be temporarily unavailable." }
-              : m
+            m.id === assistantId ? { ...m, content: fullContent } : m
           )
         );
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        // User cancelled — keep partial content
+        // User cancelled — keep partial content, will save below
       } else {
         const errorMessage =
           err instanceof Error ? err.message : "Unknown error";
         console.error("Chat error:", errorMessage);
-        // Show error in the assistant bubble
+        fullContent = `⚠️ ${errorMessage}`;
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId
-              ? { ...m, content: `⚠️ ${errorMessage}` }
-              : m
+            m.id === assistantId ? { ...m, content: fullContent } : m
           )
         );
       }
     } finally {
       setIsLoading(false);
       abortRef.current = null;
+
+      // Save assistant message to database after stream completes
+      if (fullContent.trim()) {
+        fetch("/api/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId,
+            role: "assistant",
+            content: fullContent,
+          }),
+        }).catch((err) => {
+          console.error("Failed to save assistant message:", err);
+        });
+      }
     }
   }
 

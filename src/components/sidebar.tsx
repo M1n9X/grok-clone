@@ -43,9 +43,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     }
   }, []);
 
+  // Refresh session list when route changes (e.g., new session created)
   useEffect(() => {
     fetchSessions();
-  }, [fetchSessions]);
+  }, [fetchSessions, pathname]);
 
   async function handleNewChat() {
     try {
