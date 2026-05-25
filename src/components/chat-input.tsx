@@ -81,7 +81,10 @@ export function ChatInput({
   useEffect(() => {
     if (showModels && pickerBtnRef.current) {
       const rect = pickerBtnRef.current.getBoundingClientRect();
-      setDropdownPos({ top: rect.top - 8, right: window.innerWidth - rect.right });
+      setDropdownPos({
+        top: Math.max(12, rect.top - 8),
+        right: Math.max(12, window.innerWidth - rect.right),
+      });
     }
   }, [showModels]);
 
@@ -115,9 +118,9 @@ export function ChatInput({
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4">
-      <div className="overflow-hidden rounded-3xl border border-border bg-input shadow-sm transition-shadow focus-within:border-input-ring">
-        <div className="flex items-end gap-1 p-2">
+    <div className="mx-auto w-full max-w-3xl px-3 sm:px-4">
+      <div className="overflow-hidden rounded-[1.75rem] border border-border bg-input shadow-sm transition-shadow focus-within:border-input-ring sm:rounded-3xl">
+        <div className="flex flex-wrap items-end gap-1 p-2 sm:flex-nowrap">
           <textarea
             ref={textareaRef}
             value={input}
@@ -125,7 +128,7 @@ export function ChatInput({
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             rows={1}
-            className="my-1.5 max-h-[200px] min-h-6 min-w-0 flex-1 resize-none bg-transparent px-2 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground"
+            className="order-1 my-1.5 max-h-[40vh] min-h-6 min-w-0 basis-full resize-none bg-transparent px-2 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground sm:order-none sm:max-h-[200px] sm:flex-1 sm:basis-auto"
           />
 
           <button
@@ -133,7 +136,7 @@ export function ChatInput({
             onClick={() => setWebSearch((value) => !value)}
             aria-pressed={webSearch}
             className={clsx(
-              "mb-0.5 flex h-9 shrink-0 items-center gap-2 rounded-full px-2.5 text-sm transition-colors",
+              "order-2 mb-0.5 flex h-9 shrink-0 items-center gap-2 rounded-full px-2.5 text-sm transition-colors sm:order-none",
               webSearch
                 ? "bg-foreground text-background"
                 : "text-foreground hover:bg-sidebar-hover"
@@ -153,11 +156,12 @@ export function ChatInput({
           {/* Model picker — inline, matches Grok original */}
           <button
             ref={pickerBtnRef}
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               setShowModels(!showModels);
             }}
-            className="mb-0.5 flex h-9 shrink-0 items-center gap-2 rounded-full px-2.5 text-foreground transition-colors hover:bg-sidebar-hover"
+            className="order-2 mb-0.5 flex h-9 min-w-0 shrink-0 items-center gap-2 rounded-full px-2.5 text-foreground transition-colors hover:bg-sidebar-hover sm:order-none"
           >
             <CurrentIcon className="h-[18px] w-[18px] shrink-0" />
             {/* Name + chevron hide when input has text (CSS transition) */}
@@ -177,8 +181,9 @@ export function ChatInput({
           </button>
 
           {/* Send / Stop button */}
-          <div className="relative mb-0.5 h-9 w-9 shrink-0">
+          <div className="relative order-2 mb-0.5 ml-auto h-9 w-9 shrink-0 sm:order-none sm:ml-0">
             <button
+              type="button"
               onClick={handleSubmit}
               disabled={isEmpty || isLoading}
               className={clsx(
@@ -191,6 +196,7 @@ export function ChatInput({
               <ArrowUp className="h-[18px] w-[18px]" />
             </button>
             <button
+              type="button"
               onClick={onStop}
               disabled={!isLoading}
               className={clsx(
@@ -222,6 +228,7 @@ export function ChatInput({
                 top: dropdownPos.top,
                 right: dropdownPos.right,
                 transform: "translateY(-100%)",
+                maxWidth: "calc(100vw - 1.5rem)",
               }}
             >
               {MODELS.map(({ id, name, description, Icon }) => (

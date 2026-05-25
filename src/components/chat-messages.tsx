@@ -58,8 +58,8 @@ export function ChatMessages({
   if (messages.length === 0) return null;
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-4 pt-16 pb-4">
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto w-full max-w-3xl px-3 pt-6 pb-4 sm:px-4 md:pt-16">
         {messages.map((message) => (
           <ChatMessage
             key={message.id}
@@ -107,15 +107,15 @@ function ChatMessage({
   const isUser = message.role === "user";
 
   return (
-    <div className="group/message relative mb-4 flex flex-col">
+    <div className="group/message relative mb-4 flex min-w-0 flex-col">
       {isUser ? (
         <div className="flex flex-col items-end">
           {editing ? (
-            <div className="max-w-[90%] space-y-2">
+            <div className="w-full max-w-[90%] space-y-2">
               <textarea
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
-                className="w-full min-w-[300px] rounded-2xl border border-border bg-input px-4 py-3 text-sm text-foreground outline-none focus:border-input-ring"
+                className="w-full min-w-0 rounded-2xl border border-border bg-input px-4 py-3 text-sm text-foreground outline-none focus:border-input-ring"
                 rows={3}
                 autoFocus
               />
@@ -146,7 +146,7 @@ function ChatMessage({
 
           {/* User message actions */}
           {!editing && (
-            <div className="mt-1 flex h-8 items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover/message:opacity-100">
+            <div className="mt-1 flex h-8 items-center justify-end gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/message:opacity-100">
               <button
                 onClick={() => {
                   setEditContent(message.content);
@@ -180,7 +180,7 @@ function ChatMessage({
                 onToggle={() => setThinkingOpen((value) => !value)}
               />
             )}
-            <div className="prose-chat text-sm text-foreground">
+            <div className="prose-chat min-w-0 text-sm text-foreground">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {message.content}
               </ReactMarkdown>
@@ -197,7 +197,7 @@ function ChatMessage({
           </div>
 
           {/* Assistant message actions */}
-          <div className="-ml-2 mt-1 flex h-8 items-center gap-0.5 opacity-0 transition-opacity group-hover/message:opacity-100">
+          <div className="-ml-2 mt-1 flex h-8 max-w-full items-center gap-0.5 overflow-x-auto opacity-100 transition-opacity md:opacity-0 md:group-hover/message:opacity-100">
             <button
               onClick={() => onRegenerate?.(message.id)}
               className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
@@ -268,11 +268,11 @@ function ThinkingPanel({
   }
 
   return (
-    <div className="mb-3 rounded-xl border border-border bg-accent/70">
+    <div className="mb-3 min-w-0 rounded-xl border border-border bg-accent/70">
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
       >
         <span className="flex min-w-0 items-center gap-2 text-sm text-foreground">
           <Brain className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -280,7 +280,7 @@ function ThinkingPanel({
             {stream.status ?? (isStreaming ? "Thinking" : "Thought process")}
           </span>
         </span>
-        <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+        <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground sm:gap-2">
           {firstTokenMs !== undefined && (
             <span className="font-mono tabular-nums">
               first {formatDuration(firstTokenMs)}

@@ -21,9 +21,16 @@ import { GrokLogo } from "@/components/grok-logo";
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export function Sidebar({
+  collapsed,
+  onToggle,
+  mobileOpen = false,
+  onMobileClose,
+}: SidebarProps) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -44,24 +51,20 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     }
   }, []);
 
-  // Refresh session list when route changes (e.g., new session created)
   useEffect(() => {
     fetchSessions();
   }, [fetchSessions, pathname]);
 
-  // Check for refresh flag from home page
   useEffect(() => {
     const refreshFlag = window.sessionStorage.getItem("refreshSessions");
     if (refreshFlag === "true") {
       window.sessionStorage.removeItem("refreshSessions");
-      // Small delay to ensure database has committed
       setTimeout(() => {
         fetchSessions();
       }, 100);
     }
   }, [fetchSessions]);
 
-  // Listen for title updates from chat page
   useEffect(() => {
     const handleTitleUpdate = () => {
       fetchSessions();
@@ -71,6 +74,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       window.removeEventListener("sessionTitleUpdated", handleTitleUpdate);
     };
   }, [fetchSessions]);
+
+  useEffect(() => {
+    onMobileClose?.();
+  }, [pathname, onMobileClose]);
 
   async function handleNewChat() {
     try {
@@ -83,6 +90,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         const session = await res.json();
         await fetchSessions();
         router.push(`/chat/${session.id}`);
+        onMobileClose?.();
       }
     } catch {
       // ignore
@@ -91,6 +99,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
   function handleHome() {
     router.push("/");
+    onMobileClose?.();
   }
 
   async function handleDelete(id: string, e: React.MouseEvent) {
@@ -104,6 +113,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       setSessions((prev) => prev.filter((s) => s.id !== id));
       if (pathname === `/chat/${id}`) {
         router.push("/");
+        onMobileClose?.();
       }
     } catch {
       // ignore
@@ -143,11 +153,11 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
   async function handleLogout() {
     await supabase.auth.signOut();
+    onMobileClose?.();
     router.push("/login");
     router.refresh();
   }
 
-  // Group sessions by date
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const yesterday = new Date(today);
@@ -170,70 +180,75 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     else groups[3]!.items.push(session);
   }
 
-  if (collapsed) {
-    return (
-      <div className="flex h-full w-14 shrink-0 flex-col items-center border-r border-border bg-sidebar py-3">
-        <button
-          onClick={handleHome}
-          aria-label="Go to home"
-          className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-sidebar-hover"
-        >
-          <GrokLogo className="h-4 w-8" />
-        </button>
-        <button
-          onClick={onToggle}
-          className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
-        >
-          <PanelLeft className="h-5 w-5" />
-        </button>
-        <button
-          onClick={handleNewChat}
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
-        >
-          <Plus className="h-5 w-5" />
-        </button>
-        <div className="flex-1" />
-        <button
-          onClick={handleLogout}
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
-        >
-          <LogOut className="h-4 w-4" />
-        </button>
-      </div>
-    );
-  }
+  const collapsedSidebar = (
+    <div className="hidden h-full w-14 shrink-0 flex-col items-center border-r border-border bg-sidebar py-3 md:flex">
+      <button
+        onClick={handleHome}
+        aria-label="Go to home"
+        className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-sidebar-hover"
+      >
+        <GrokLogo className="h-4 w-8" />
+      </button>
+      <button
+        onClick={onToggle}
+        aria-label="Expand sidebar"
+        className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+      >
+        <PanelLeft className="h-5 w-5" />
+      </button>
+      <button
+        onClick={handleNewChat}
+        aria-label="New chat"
+        className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+      >
+        <Plus className="h-5 w-5" />
+      </button>
+      <div className="flex-1" />
+      <button
+        onClick={handleLogout}
+        aria-label="Sign out"
+        className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+      >
+        <LogOut className="h-4 w-4" />
+      </button>
+    </div>
+  );
 
-  return (
-    <div className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-sidebar">
-      {/* Header */}
+  const expandedSidebar = (
+    <div className="flex h-full w-full min-w-0 flex-col bg-sidebar md:w-64 md:border-r md:border-border">
       <div className="flex items-center justify-between px-3 py-3">
-        <div className="flex items-center gap-1">
+        <div className="flex min-w-0 items-center gap-1">
           <button
             onClick={handleHome}
             aria-label="Go to home"
-            className="flex h-9 w-16 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-sidebar-hover"
+            className="flex h-9 w-16 shrink-0 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-sidebar-hover"
           >
             <GrokLogo className="h-6 w-15" />
           </button>
           <button
-            onClick={onToggle}
-            aria-label="Collapse sidebar"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+            onClick={() => {
+              if (onMobileClose && window.innerWidth < 768) {
+                onMobileClose();
+                return;
+              }
+              onToggle();
+            }}
+            aria-label="Close sidebar"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
           >
             <PanelLeftClose className="h-5 w-5" />
           </button>
         </div>
         <button
           onClick={handleNewChat}
-          className="flex h-9 items-center gap-2 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+          className="flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
         >
           <Plus className="h-4 w-4" />
           New Chat
         </button>
       </div>
 
-      {/* Session list */}
-      <div className="flex-1 overflow-y-auto px-2 pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {loading ? (
           <div className="px-3 py-8 text-center text-xs text-muted-foreground">
             Loading...
@@ -257,7 +272,12 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                     return (
                       <div
                         key={session.id}
-                        onClick={() => !isEditing && router.push(`/chat/${session.id}`)}
+                        onClick={() => {
+                          if (!isEditing) {
+                            router.push(`/chat/${session.id}`);
+                            onMobileClose?.();
+                          }
+                        }}
                         className={clsx(
                           "group relative flex cursor-pointer items-center rounded-lg px-3 py-2 text-sm transition-colors",
                           isActive
@@ -268,7 +288,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         <MessageSquare className="mr-2.5 h-4 w-4 shrink-0 opacity-50" />
 
                         {isEditing ? (
-                          <div className="flex flex-1 items-center gap-1">
+                          <div className="flex min-w-0 flex-1 items-center gap-1">
                             <input
                               value={editTitle}
                               onChange={(e) => setEditTitle(e.target.value)}
@@ -304,7 +324,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                             <span className="min-w-0 flex-1 truncate">
                               {session.title}
                             </span>
-                            <div className="ml-1 hidden shrink-0 items-center gap-0.5 group-hover:flex">
+                            <div className="ml-1 flex shrink-0 items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100">
                               <button
                                 onClick={(e) => startEditing(session, e)}
                                 className="rounded p-1 text-muted-foreground hover:bg-sidebar-active hover:text-foreground"
@@ -329,7 +349,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         )}
       </div>
 
-      {/* Footer */}
       <div className="border-t border-border p-2">
         <button
           onClick={handleLogout}
@@ -340,5 +359,29 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </button>
       </div>
     </div>
+  );
+
+  return (
+    <>
+      {collapsed ? (
+        collapsedSidebar
+      ) : (
+        <div className="hidden h-full shrink-0 md:flex">{expandedSidebar}</div>
+      )}
+
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <button
+            type="button"
+            aria-label="Close sidebar"
+            onClick={onMobileClose}
+            className="absolute inset-0 bg-black/45"
+          />
+          <aside className="relative h-full w-[min(82vw,20rem)] border-r border-border bg-sidebar shadow-2xl">
+            {expandedSidebar}
+          </aside>
+        </div>
+      )}
+    </>
   );
 }

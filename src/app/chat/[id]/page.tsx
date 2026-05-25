@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
+import { PanelLeft } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
 import { ChatInput } from "@/components/chat-input";
 import {
@@ -20,6 +21,7 @@ export default function ChatPage() {
   const sessionId = params.id as string;
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -31,6 +33,7 @@ export default function ChatPage() {
     webSearch?: boolean;
     xSearch?: boolean;
   } | null>(null);
+  const closeMobileSidebar = useCallback(() => setMobileSidebarOpen(false), []);
 
   // Keep ref in sync
   useEffect(() => {
@@ -396,22 +399,37 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full min-w-0">
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        mobileOpen={mobileSidebarOpen}
+        onMobileClose={closeMobileSidebar}
       />
 
-      <main className="flex flex-1 flex-col overflow-hidden">
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex h-14 shrink-0 items-center justify-between px-3 md:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileSidebarOpen(true)}
+            aria-label="Open sidebar"
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+          >
+            <PanelLeft className="h-5 w-5" />
+          </button>
+          <GrokLogo className="h-6 w-auto text-foreground" />
+          <div className="h-10 w-10" />
+        </header>
+
         {messages.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center">
-            <GrokLogo className="mb-8 h-12 w-auto text-foreground" />
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center pb-6">
+            <GrokLogo className="mb-8 hidden h-12 w-auto text-foreground md:block" />
             <ChatInput
               onSend={sendMessage}
               isLoading={isLoading}
               onStop={handleStop}
             />
-            <p className="mt-3 text-center text-xs text-muted-foreground">
+            <p className="mt-3 px-4 text-center text-xs text-muted-foreground">
               Grok can make mistakes. Verify important information.
             </p>
           </div>
@@ -422,13 +440,13 @@ export default function ChatPage() {
               isStreaming={isLoading}
               onEdit={handleEditMessage}
             />
-            <div className="pb-3">
+            <div className="shrink-0 pb-3">
               <ChatInput
                 onSend={sendMessage}
                 isLoading={isLoading}
                 onStop={handleStop}
               />
-              <p className="mt-2 text-center text-xs text-muted-foreground">
+              <p className="mt-2 px-4 text-center text-xs text-muted-foreground">
                 Grok can make mistakes. Verify important information.
               </p>
             </div>

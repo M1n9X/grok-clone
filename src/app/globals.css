@@ -87,6 +87,8 @@ body {
 /* Markdown content styling */
 .prose-chat {
   line-height: 1.7;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .prose-chat p {
@@ -105,6 +107,7 @@ body {
 .prose-chat pre {
   margin-top: 0.75rem;
   margin-bottom: 0.75rem;
+  max-width: 100%;
   padding: 1rem;
   border-radius: 0.75rem;
   background: #1a1a1a;
@@ -182,10 +185,12 @@ body {
 }
 
 .prose-chat table {
+  display: block;
   margin-top: 0.75rem;
   margin-bottom: 0.75rem;
   width: 100%;
   border-collapse: collapse;
+  overflow-x: auto;
 }
 
 .prose-chat th,

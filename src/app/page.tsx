@@ -1,14 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PanelLeft } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
 import { ChatInput } from "@/components/chat-input";
 import { GrokLogo } from "@/components/grok-logo";
 
 export default function HomePage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const router = useRouter();
+  const closeMobileSidebar = useCallback(() => setMobileSidebarOpen(false), []);
 
   async function handleSend(
     content: string,
@@ -39,26 +42,41 @@ export default function HomePage() {
   }
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full min-w-0">
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        mobileOpen={mobileSidebarOpen}
+        onMobileClose={closeMobileSidebar}
       />
 
-      <main className="flex flex-1 flex-col items-center justify-center overflow-hidden">
-        <GrokLogo className="mb-8 h-12 w-auto text-foreground" />
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex h-14 shrink-0 items-center justify-between px-3 md:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileSidebarOpen(true)}
+            aria-label="Open sidebar"
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+          >
+            <PanelLeft className="h-5 w-5" />
+          </button>
+          <GrokLogo className="h-6 w-auto text-foreground" />
+          <div className="h-10 w-10" />
+        </header>
 
-        <div className="w-full max-w-3xl px-4">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-0 pb-6">
+          <GrokLogo className="mb-8 hidden h-12 w-auto text-foreground md:block" />
+
           <ChatInput
             onSend={handleSend}
             isLoading={false}
             onStop={() => {}}
           />
-        </div>
 
-        <p className="mt-3 text-center text-xs text-muted-foreground">
-          Grok can make mistakes. Verify important information.
-        </p>
+          <p className="mt-3 px-4 text-center text-xs text-muted-foreground">
+            Grok can make mistakes. Verify important information.
+          </p>
+        </div>
       </main>
     </div>
   );
