@@ -26,8 +26,8 @@ export default function HomePage() {
         `pending-msg-${session.id}`,
         JSON.stringify({ content, model })
       );
-      // Trigger sidebar refresh to show new session with correct title
-      window.dispatchEvent(new CustomEvent("sessionTitleUpdated"));
+      // Flag for sidebar to refresh sessions
+      window.sessionStorage.setItem("refreshSessions", "true");
       router.push(`/chat/${session.id}`);
     }
   }

@@ -48,6 +48,18 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     fetchSessions();
   }, [fetchSessions, pathname]);
 
+  // Check for refresh flag from home page
+  useEffect(() => {
+    const refreshFlag = window.sessionStorage.getItem("refreshSessions");
+    if (refreshFlag === "true") {
+      window.sessionStorage.removeItem("refreshSessions");
+      // Small delay to ensure database has committed
+      setTimeout(() => {
+        fetchSessions();
+      }, 100);
+    }
+  }, [fetchSessions]);
+
   // Listen for title updates from chat page
   useEffect(() => {
     const handleTitleUpdate = () => {
