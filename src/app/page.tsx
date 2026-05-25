@@ -9,7 +9,7 @@ export default function HomePage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const router = useRouter();
 
-  async function handleSend(content: string) {
+  async function handleSend(content: string, model: string = "auto") {
     // Create a new session and redirect
     const res = await fetch("/api/sessions", {
       method: "POST",
@@ -21,8 +21,11 @@ export default function HomePage() {
 
     if (res.ok) {
       const session = await res.json();
-      // Store pending message for the chat page to pick up
-      window.sessionStorage.setItem(`pending-msg-${session.id}`, content);
+      // Store pending message + model for the chat page to pick up
+      window.sessionStorage.setItem(
+        `pending-msg-${session.id}`,
+        JSON.stringify({ content, model })
+      );
       router.push(`/chat/${session.id}`);
     }
   }

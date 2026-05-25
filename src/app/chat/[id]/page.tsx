@@ -16,14 +16,14 @@ export default function ChatPage() {
   const abortRef = useRef<AbortController | null>(null);
   const initializedRef = useRef(false);
   const messagesRef = useRef<Message[]>([]);
-  const pendingMsgRef = useRef<string | null>(null);
+  const pendingMsgRef = useRef<{ content: string; model: string } | null>(null);
 
   // Keep ref in sync
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
-  async function sendMessage(content: string) {
+  async function sendMessage(content: string, model: string = "auto") {
     if (!content.trim()) return;
 
     const userMessage: Message = {
@@ -54,12 +54,16 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMessages, sessionId }),
+        body: JSON.stringify({ messages: apiMessages, sessionId, model }),
         signal: abortController.signal,
       });
 
-      if (!res.ok) throw new Error("Chat request failed");
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || `Request failed (${res.status})`);
+      }
 
+      // Read plain text stream from toTextStreamResponse
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       let fullContent = "";
@@ -70,7 +74,24 @@ export default function ChatPage() {
           if (done) break;
 
           const chunk = decoder.decode(value, { stream: true });
-          fullContent += chunk;
+
+          // Detect error chunks from the stream
+          if (chunk.startsWith('{"error":')) {
+            try {
+              const errData = JSON.parse(chunk);
+              throw new Error(errData.error?.message ?? "Stream error");
+            } catch (e) {
+              if (e instanceof SyntaxError) {
+                // Not JSON, treat as normal text
+                fullContent += chunk;
+              } else {
+                throw e; // Re-throw our Error
+              }
+            }
+          } else {
+            fullContent += chunk;
+          }
+
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId ? { ...m, content: fullContent } : m
@@ -78,11 +99,32 @@ export default function ChatPage() {
           );
         }
       }
+
+      // If no content was streamed, show error
+      if (!fullContent.trim()) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, content: "⚠️ No response received. The model may be temporarily unavailable." }
+              : m
+          )
+        );
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        // User cancelled
+        // User cancelled — keep partial content
       } else {
-        console.error("Chat error:", err);
+        const errorMessage =
+          err instanceof Error ? err.message : "Unknown error";
+        console.error("Chat error:", errorMessage);
+        // Show error in the assistant bubble
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, content: `⚠️ ${errorMessage}` }
+              : m
+          )
+        );
       }
     } finally {
       setIsLoading(false);
@@ -118,7 +160,11 @@ export default function ChatPage() {
       const pending = window.sessionStorage.getItem(`pending-msg-${sessionId}`);
       if (pending) {
         window.sessionStorage.removeItem(`pending-msg-${sessionId}`);
-        pendingMsgRef.current = pending;
+        try {
+          pendingMsgRef.current = JSON.parse(pending);
+        } catch {
+          pendingMsgRef.current = { content: pending, model: "auto" };
+        }
       }
     }
 
@@ -128,10 +174,10 @@ export default function ChatPage() {
   // Send pending message after load
   useEffect(() => {
     if (pendingMsgRef.current && messages.length >= 0) {
-      const msg = pendingMsgRef.current;
+      const pending = pendingMsgRef.current;
       pendingMsgRef.current = null;
-      if (msg) {
-        setTimeout(() => sendMessage(msg), 100);
+      if (pending) {
+        setTimeout(() => sendMessage(pending.content, pending.model), 100);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

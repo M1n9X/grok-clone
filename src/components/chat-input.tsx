@@ -1,17 +1,34 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { ArrowUp, Square, ChevronDown, Zap, Moon, Check } from "lucide-react";
+import { ArrowUp, Square, ChevronDown, Zap, Brain, Sparkles, Check } from "lucide-react";
 import { clsx } from "clsx";
 
-const MODELS = [
-  { id: "default", name: "Default", description: "Standard model", Icon: Zap },
-  { id: "fast", name: "Fast", description: "Quick responses", Icon: Zap },
-  { id: "think", name: "Think", description: "Deep reasoning", Icon: Moon },
-];
+export const MODELS = [
+  {
+    id: "fast",
+    name: "Fast",
+    description: "Quick responses for everyday tasks",
+    Icon: Zap,
+  },
+  {
+    id: "auto",
+    name: "Auto",
+    description: "Automatically picks the best model",
+    Icon: Sparkles,
+  },
+  {
+    id: "expert",
+    name: "Expert",
+    description: "Deep reasoning for complex problems",
+    Icon: Brain,
+  },
+] as const;
+
+export type ModelId = (typeof MODELS)[number]["id"];
 
 interface ChatInputProps {
-  onSend: (message: string) => void;
+  onSend: (message: string, model: string) => void;
   isLoading: boolean;
   onStop: () => void;
   placeholder?: string;
@@ -24,13 +41,13 @@ export function ChatInput({
   placeholder = "What do you want to know?",
 }: ChatInputProps) {
   const [input, setInput] = useState("");
-  const [model, setModel] = useState("default");
+  const [model, setModel] = useState<ModelId>("auto");
   const [showModels, setShowModels] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
 
   const isEmpty = input.trim().length === 0;
-  const currentModel = MODELS.find((m) => m.id === model) ?? MODELS[0]!;
+  const currentModel = MODELS.find((m) => m.id === model) ?? MODELS[1]!;
   const CurrentIcon = currentModel.Icon;
 
   // Auto-resize textarea
@@ -55,7 +72,7 @@ export function ChatInput({
 
   function handleSubmit() {
     if (isEmpty || isLoading) return;
-    onSend(input.trim());
+    onSend(input.trim(), model);
     setInput("");
   }
 
