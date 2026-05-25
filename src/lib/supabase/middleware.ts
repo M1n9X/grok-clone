@@ -29,6 +29,15 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  const registrationEnabled = process.env.ENABLE_REGISTRATION !== "false";
+
+  // Block access to /register when registration is disabled
+  if (!registrationEnabled && request.nextUrl.pathname.startsWith("/register")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
   // Redirect unauthenticated users to login
   if (
     !user &&
