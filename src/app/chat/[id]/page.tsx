@@ -27,12 +27,6 @@ export default function ChatPage() {
   const abortRef = useRef<AbortController | null>(null);
   const initializedRef = useRef(false);
   const messagesRef = useRef<Message[]>([]);
-  const pendingMsgRef = useRef<{
-    content: string;
-    model: string;
-    webSearch?: boolean;
-    xSearch?: boolean;
-  } | null>(null);
   const closeMobileSidebar = useCallback(() => setMobileSidebarOpen(false), []);
 
   // Keep ref in sync
@@ -338,6 +332,31 @@ export default function ChatPage() {
     initializedRef.current = true;
 
     async function loadSession() {
+      // Check for pending message from home page FIRST
+      const pending = window.sessionStorage.getItem(
+        `pending-msg-${sessionId}`
+      );
+
+      if (pending) {
+        // New session: skip fetch (session was just created, has zero messages)
+        window.sessionStorage.removeItem(`pending-msg-${sessionId}`);
+        let parsed: { content: string; model: string; webSearch?: boolean; xSearch?: boolean };
+        try {
+          parsed = JSON.parse(pending);
+        } catch {
+          parsed = { content: pending, model: "auto" };
+        }
+        // Dispatch pending message immediately (no artificial delay)
+        sendMessage(
+          parsed.content,
+          parsed.model,
+          parsed.webSearch ?? false,
+          parsed.xSearch ?? false
+        );
+        return;
+      }
+
+      // Existing session: load messages from DB
       try {
         const res = await fetch(`/api/sessions/${sessionId}`);
         if (res.ok) {
@@ -355,44 +374,11 @@ export default function ChatPage() {
       } catch {
         // ignore
       }
-
-      // Check for pending message from home page
-      const pending = window.sessionStorage.getItem(
-        `pending-msg-${sessionId}`
-      );
-      if (pending) {
-        window.sessionStorage.removeItem(`pending-msg-${sessionId}`);
-        try {
-          pendingMsgRef.current = JSON.parse(pending);
-        } catch {
-          pendingMsgRef.current = { content: pending, model: "auto" };
-        }
-      }
     }
 
     loadSession();
-  }, [sessionId]);
-
-  // Send pending message after load
-  useEffect(() => {
-    if (pendingMsgRef.current && messages.length >= 0) {
-      const pending = pendingMsgRef.current;
-      pendingMsgRef.current = null;
-      if (pending) {
-        setTimeout(
-          () =>
-            sendMessage(
-              pending.content,
-              pending.model,
-              pending.webSearch ?? false,
-              pending.xSearch ?? false
-            ),
-          100
-        );
-      }
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages]);
+  }, [sessionId]);
 
   function handleStop() {
     abortRef.current?.abort();

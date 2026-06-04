@@ -6,10 +6,13 @@ import { PanelLeft } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
 import { ChatInput } from "@/components/chat-input";
 import { GrokLogo } from "@/components/grok-logo";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export default function HomePage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState<string | null>(null);
   const router = useRouter();
   const closeMobileSidebar = useCallback(() => setMobileSidebarOpen(false), []);
 
@@ -19,6 +22,9 @@ export default function HomePage() {
     webSearch: boolean = false,
     xSearch: boolean = false
   ) {
+    // Show optimistic UI immediately
+    setSendingMessage(content);
+
     // Create a new session and redirect
     const res = await fetch("/api/sessions", {
       method: "POST",
@@ -38,6 +44,8 @@ export default function HomePage() {
       // Flag for sidebar to refresh sessions
       window.sessionStorage.setItem("refreshSessions", "true");
       router.push(`/chat/${session.id}`);
+    } else {
+      setSendingMessage(null);
     }
   }
 
@@ -64,19 +72,44 @@ export default function HomePage() {
           <div className="h-10 w-10" />
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-0 pb-6">
-          <GrokLogo className="mb-8 hidden h-12 w-auto text-foreground md:block" />
+        {sendingMessage ? (
+          <div className="flex min-h-0 flex-1 flex-col items-stretch px-0 pb-6">
+            <div className="min-h-0 flex-1 overflow-y-auto px-4">
+              <div className="mx-auto flex max-w-3xl flex-col items-start gap-4 py-6">
+                <div className="flex flex-col items-end self-end">
+                  <div className="max-w-[80%] rounded-2xl bg-accent px-4 py-2.5">
+                    <div className="prose-chat text-sm text-foreground">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {sendingMessage}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span className="relative flex h-3 w-3">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60 opacity-75" />
+                    <span className="relative inline-flex h-3 w-3 rounded-full bg-primary/40" />
+                  </span>
+                  Preparing...
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-0 pb-6">
+            <GrokLogo className="mb-8 hidden h-12 w-auto text-foreground md:block" />
 
-          <ChatInput
-            onSend={handleSend}
-            isLoading={false}
-            onStop={() => {}}
-          />
+            <ChatInput
+              onSend={handleSend}
+              isLoading={false}
+              onStop={() => {}}
+            />
 
-          <p className="mt-3 px-4 text-center text-xs text-muted-foreground">
-            Grok can make mistakes. Verify important information.
-          </p>
-        </div>
+            <p className="mt-3 px-4 text-center text-xs text-muted-foreground">
+              Grok can make mistakes. Verify important information.
+            </p>
+          </div>
+        )}
       </main>
     </div>
   );
