@@ -2,26 +2,62 @@
 
 import dynamic from "next/dynamic";
 import remarkGfm from "remark-gfm";
-import { useState, useCallback, type ReactNode } from "react";
+import { useState, useCallback, useMemo, memo, type ReactNode } from "react";
 import { Copy, Check, ExternalLink } from "lucide-react";
 import { type Citation, extractDomain } from "@/lib/chat-stream-events";
+
+const REMARK_PLUGINS = [remarkGfm];
 
 const ReactMarkdownLazy = dynamic(
   () => import("react-markdown").then((mod) => mod.default),
   { ssr: false, loading: () => null }
 );
 
-const SyntaxHighlighterLazy = dynamic(
-  () =>
-    import("react-syntax-highlighter/dist/esm/prism").then(
-      (mod) => mod.default
+const SyntaxHighlighterWithTheme = dynamic(
+  async () => {
+    const [{ default: SyntaxHighlighter }, { oneDark }] = await Promise.all([
+      import("react-syntax-highlighter/dist/esm/prism"),
+      import("react-syntax-highlighter/dist/esm/styles/prism"),
+    ]);
+    function StyledHighlighter({
+      language,
+      children,
+    }: {
+      language: string;
+      children: string;
+    }) {
+      return (
+        <SyntaxHighlighter
+          language={language}
+          style={oneDark}
+          customStyle={{
+            margin: 0,
+            borderRadius: "0 0 0.75rem 0.75rem",
+            border: "1px solid var(--border, #2a2a2a)",
+            borderTop: "none",
+            padding: "1rem",
+            fontSize: "0.875rem",
+            background: "#282c34",
+          }}
+          wrapLongLines
+        >
+          {children}
+        </SyntaxHighlighter>
+      );
+    }
+    return StyledHighlighter;
+  },
+  {
+    ssr: false,
+    loading: () => (
+      <pre className="rounded-b-xl border border-t-0 border-border bg-[#282c34] p-4 text-sm text-gray-300">
+        <code />
+      </pre>
     ),
-  { ssr: false, loading: () => null }
+  }
 );
 
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-
-function CodeBlock({
+const CodeBlock = memo(function CodeBlock({
   language,
   code,
 }: {
@@ -60,25 +96,12 @@ function CodeBlock({
           )}
         </button>
       </div>
-      <SyntaxHighlighterLazy
-        language={language || "text"}
-        style={oneDark}
-        customStyle={{
-          margin: 0,
-          borderRadius: "0 0 0.75rem 0.75rem",
-          border: "1px solid var(--border, #2a2a2a)",
-          borderTop: "none",
-          padding: "1rem",
-          fontSize: "0.875rem",
-          background: "#282c34",
-        }}
-        wrapLongLines
-      >
+      <SyntaxHighlighterWithTheme language={language || "text"}>
         {code}
-      </SyntaxHighlighterLazy>
+      </SyntaxHighlighterWithTheme>
     </div>
   );
-}
+});
 
 function CitationLink({
   href,
@@ -158,56 +181,58 @@ function extractText(children: ReactNode): string {
   return "";
 }
 
-function MarkdownRenderer({
+const MarkdownRenderer = memo(function MarkdownRenderer({
   children,
   citations,
 }: {
   children: string;
   citations?: Citation[];
 }) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const components = useMemo((): any => {
+    return {
+      code({ className, children, ...rest }: any) {
+        const match = /language-(\w+)/.exec(className || "");
+        const codeString = String(children).replace(/\n$/, "");
+
+        if (match) {
+          return <CodeBlock language={match[1]!} code={codeString} />;
+        }
+
+        return (
+          <code className={className} {...rest}>
+            {children}
+          </code>
+        );
+      },
+      pre({ children }: any) {
+        return <>{children}</>;
+      },
+      a({ href, children }: any) {
+        if (!href) return <span>{children}</span>;
+
+        const text = extractText(children).trim();
+        const isCitation = /^\[?\d+\]?$/.test(text);
+
+        if (isCitation && citations && citations.length > 0) {
+          const citation = citations.find((c: Citation) => c.url === href);
+          return <CitationLink href={href} citation={citation} />;
+        }
+
+        return (
+          <a href={href} target="_blank" rel="noopener noreferrer">
+            {children}
+          </a>
+        );
+      },
+    };
+  }, [citations]);
+
   return (
-    <ReactMarkdownLazy
-      remarkPlugins={[remarkGfm]}
-      components={{
-        code({ className, children, ...rest }) {
-          const match = /language-(\w+)/.exec(className || "");
-          const codeString = String(children).replace(/\n$/, "");
-
-          if (match) {
-            return <CodeBlock language={match[1]} code={codeString} />;
-          }
-
-          return (
-            <code className={className} {...rest}>
-              {children}
-            </code>
-          );
-        },
-        pre({ children }) {
-          return <>{children}</>;
-        },
-        a({ href, children }) {
-          if (!href) return <span>{children}</span>;
-
-          const text = extractText(children).trim();
-          const isCitation = /^\[?\d+\]?$/.test(text);
-
-          if (isCitation && citations && citations.length > 0) {
-            const citation = citations.find((c) => c.url === href);
-            return <CitationLink href={href} citation={citation} />;
-          }
-
-          return (
-            <a href={href} target="_blank" rel="noopener noreferrer">
-              {children}
-            </a>
-          );
-        },
-      }}
-    >
+    <ReactMarkdownLazy remarkPlugins={REMARK_PLUGINS} components={components}>
       {children}
     </ReactMarkdownLazy>
   );
-}
+});
 
 export { MarkdownRenderer };

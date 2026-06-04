@@ -17,55 +17,61 @@ export default function HomePage() {
   const [sendingMessage, setSendingMessage] = useState<string | null>(null);
   const router = useRouter();
   const closeMobileSidebar = useCallback(() => setMobileSidebarOpen(false), []);
+  const toggleSidebar = useCallback(
+    () => setSidebarCollapsed((prev) => !prev),
+    []
+  );
 
   useKeyboardShortcuts({
     onNewChat: () => router.push("/"),
   });
 
-  async function handleSend(
-    content: string,
-    model: string = "auto",
-    webSearch: boolean = false,
-    xSearch: boolean = false
-  ) {
-    // Show optimistic UI immediately
-    setSendingMessage(content);
+  const handleSend = useCallback(
+    async (
+      content: string,
+      model: string = "auto",
+      webSearch: boolean = false,
+      xSearch: boolean = false
+    ) => {
+      setSendingMessage(content);
 
-    // Create a new session and redirect
-    const res = await fetch("/api/sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: content.slice(0, 50) + (content.length > 50 ? "..." : ""),
-      }),
-    });
+      const res = await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: content.slice(0, 50) + (content.length > 50 ? "..." : ""),
+        }),
+      });
 
-    if (res.ok) {
-      const session = await res.json();
-      // Store pending message + model for the chat page to pick up
-      window.sessionStorage.setItem(
-        `pending-msg-${session.id}`,
-        JSON.stringify({ content, model, webSearch, xSearch })
-      );
-      // Flag for sidebar to refresh sessions
-      window.sessionStorage.setItem("refreshSessions", "true");
-      router.push(`/chat/${session.id}`);
-    } else {
-      setSendingMessage(null);
-    }
-  }
+      if (res.ok) {
+        const session = await res.json();
+        window.sessionStorage.setItem(
+          `pending-msg-${session.id}`,
+          JSON.stringify({ content, model, webSearch, xSearch })
+        );
+        window.sessionStorage.setItem("refreshSessions", "true");
+        router.push(`/chat/${session.id}`);
+      } else {
+        setSendingMessage(null);
+      }
+    },
+    [router]
+  );
+
+  const handleNewChat = useCallback(() => router.push("/"), [router]);
+  const handleStop = useCallback(() => {}, []);
 
   return (
     <div className="flex h-full min-w-0">
       <Sidebar
         collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onToggle={toggleSidebar}
         mobileOpen={mobileSidebarOpen}
         onMobileClose={closeMobileSidebar}
       />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <TopBar onNewChat={() => router.push("/")} />
+        <TopBar onNewChat={handleNewChat} />
         <header className="flex h-14 shrink-0 items-center justify-between px-3 pt-[env(safe-area-inset-top)] md:hidden">
           <button
             type="button"
@@ -107,14 +113,14 @@ export default function HomePage() {
             <ChatInput
               onSend={handleSend}
               isLoading={false}
-              onStop={() => {}}
+              onStop={handleStop}
             />
 
             <p className="mt-3 px-4 text-center text-xs text-muted-foreground">
               Grok can make mistakes. Verify important information.
             </p>
 
-            <PromptSuggestions onSelect={(text) => handleSend(text)} />
+            <PromptSuggestions onSelect={handleSend} />
           </div>
         )}
       </main>

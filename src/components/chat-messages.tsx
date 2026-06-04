@@ -14,7 +14,7 @@ import {
   X,
   ExternalLink,
 } from "lucide-react";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { useToast } from "@/components/toast";
 import type { Citation } from "@/lib/chat-stream-events";
@@ -59,19 +59,29 @@ export function ChatMessages({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const isAutoScrolling = useRef(true);
+  const scrollRafRef = useRef<number | null>(null);
 
   const handleScroll = useCallback(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const isNearBottom = distanceFromBottom < 150;
-    setShowScrollBtn(!isNearBottom);
-    isAutoScrolling.current = isNearBottom;
+    if (scrollRafRef.current !== null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      const el = scrollContainerRef.current;
+      if (!el) return;
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const isNearBottom = distanceFromBottom < 150;
+      setShowScrollBtn((prev) => {
+        const next = !isNearBottom;
+        return prev === next ? prev : next;
+      });
+      isAutoScrolling.current = isNearBottom;
+    });
   }, []);
 
   useEffect(() => {
-    if (isAutoScrolling.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!isAutoScrolling.current) return;
+    const el = scrollContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
     }
   }, [messages, isStreaming]);
 
@@ -79,11 +89,11 @@ export function ChatMessages({
     isAutoScrolling.current = true;
   }, [messages.length]);
 
-  function scrollToBottom() {
+  const scrollToBottom = useCallback(() => {
     isAutoScrolling.current = true;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     setShowScrollBtn(false);
-  }
+  }, []);
 
   if (messages.length === 0) return null;
 
@@ -95,13 +105,11 @@ export function ChatMessages({
         className="h-full overflow-y-auto"
       >
         <div className="mx-auto w-full max-w-3xl px-3 pt-6 pb-4 sm:px-4 md:pt-16">
-          {messages.map((message) => (
+          {messages.map((message, idx) => (
             <ChatMessage
               key={message.id}
               message={message}
-              isStreaming={
-                isStreaming && message === messages[messages.length - 1]
-              }
+              isStreaming={isStreaming && idx === messages.length - 1}
               onEdit={onEdit}
               onRegenerate={onRegenerate}
             />
@@ -123,91 +131,140 @@ export function ChatMessages({
   );
 }
 
-function ChatMessage({
-  message,
-  isStreaming,
-  onEdit,
-  onRegenerate,
-}: {
-  message: Message;
-  isStreaming: boolean;
-  onEdit?: (id: string, content: string) => void;
-  onRegenerate?: (id: string) => void;
-}) {
-  const [copied, setCopied] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [thinkingOpen, setThinkingOpen] = useState(true);
-  const [editContent, setEditContent] = useState(message.content);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const { toast } = useToast();
+const ChatMessage = memo(
+  function ChatMessage({
+    message,
+    isStreaming,
+    onEdit,
+    onRegenerate,
+  }: {
+    message: Message;
+    isStreaming: boolean;
+    onEdit?: (id: string, content: string) => void;
+    onRegenerate?: (id: string) => void;
+  }) {
+    const [copied, setCopied] = useState(false);
+    const [editing, setEditing] = useState(false);
+    const [thinkingOpen, setThinkingOpen] = useState(true);
+    const [editContent, setEditContent] = useState(message.content);
+    const [drawerOpen, setDrawerOpen] = useState(false);
+    const { toast } = useToast();
 
-  const citations = message.citations ?? message.stream?.citations ?? [];
+    const citations = message.citations ?? message.stream?.citations ?? [];
 
-  async function handleCopy() {
-    await navigator.clipboard.writeText(message.content);
-    setCopied(true);
-    toast("Copied to clipboard");
-    setTimeout(() => setCopied(false), 2000);
-  }
+    const handleCopy = useCallback(async () => {
+      await navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      toast("Copied to clipboard");
+      setTimeout(() => setCopied(false), 2000);
+    }, [message.content, toast]);
 
-  function handleEditSave() {
-    onEdit?.(message.id, editContent);
-    setEditing(false);
-  }
+    function handleEditSave() {
+      onEdit?.(message.id, editContent);
+      setEditing(false);
+    }
 
-  const isUser = message.role === "user";
+    const isUser = message.role === "user";
 
-  return (
-    <div className="group/message relative mb-4 flex min-w-0 flex-col">
-      {isUser ? (
-        <div className="flex flex-col items-end">
-          {editing ? (
-            <div className="w-full max-w-[90%] space-y-2">
-              <textarea
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                className="w-full min-w-0 rounded-2xl border border-border bg-input px-4 py-3 text-sm text-foreground outline-none focus:border-input-ring"
-                rows={3}
-                autoFocus
-              />
-              <div className="flex justify-end gap-2">
+    return (
+      <div className="group/message relative mb-4 flex min-w-0 flex-col">
+        {isUser ? (
+          <div className="flex flex-col items-end">
+            {editing ? (
+              <div className="w-full max-w-[90%] space-y-2">
+                <textarea
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  className="w-full min-w-0 rounded-2xl border border-border bg-input px-4 py-3 text-sm text-foreground outline-none focus:border-input-ring"
+                  rows={3}
+                  autoFocus
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setEditing(false)}
+                    className="rounded-lg px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleEditSave}
+                    className="rounded-lg bg-foreground px-3 py-1 text-xs text-background"
+                  >
+                    Save & Submit
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="max-w-[90%] rounded-3xl rounded-br-lg border border-border bg-user-bubble px-4 py-3 text-user-bubble-foreground">
+                <div className="prose-chat text-sm">
+                  <MarkdownRenderer>{message.content}</MarkdownRenderer>
+                </div>
+              </div>
+            )}
+
+            {/* User message actions */}
+            {!editing && (
+              <div className="mt-1 flex h-8 items-center justify-end gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover/message:opacity-100">
                 <button
-                  onClick={() => setEditing(false)}
-                  className="rounded-lg px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => {
+                    setEditContent(message.content);
+                    setEditing(true);
+                  }}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
                 >
-                  Cancel
+                  <Pencil className="h-4 w-4" />
                 </button>
                 <button
-                  onClick={handleEditSave}
-                  className="rounded-lg bg-foreground px-3 py-1 text-xs text-background"
+                  onClick={handleCopy}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
                 >
-                  Save & Submit
+                  {copied ? (
+                    <Check className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
                 </button>
               </div>
-            </div>
-          ) : (
-            <div className="max-w-[90%] rounded-3xl rounded-br-lg border border-border bg-user-bubble px-4 py-3 text-user-bubble-foreground">
-              <div className="prose-chat text-sm">
-                <MarkdownRenderer>{message.content}</MarkdownRenderer>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col items-start">
+            <div className="w-full">
+              {message.stream && (
+                <ThinkingPanel
+                  stream={message.stream}
+                  isStreaming={isStreaming}
+                  open={thinkingOpen}
+                  onToggle={() => setThinkingOpen((value) => !value)}
+                />
+              )}
+              <div className="prose-chat min-w-0 text-sm text-foreground">
+                <MarkdownRenderer citations={citations}>
+                  {message.content}
+                </MarkdownRenderer>
+                {isStreaming && message.content.length > 0 && (
+                  <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-foreground" />
+                )}
               </div>
+              {isStreaming && message.content.length === 0 && (
+                <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-foreground" />
+                  <span>{message.stream?.status ?? "Thinking"}</span>
+                </div>
+              )}
             </div>
-          )}
 
-          {/* User message actions */}
-          {!editing && (
-            <div className="mt-1 flex h-8 items-center justify-end gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover/message:opacity-100">
+            {/* Assistant message actions */}
+            <div className="-ml-2 mt-1 flex h-8 max-w-full items-center gap-1 overflow-x-auto opacity-100 transition-opacity md:opacity-0 md:group-hover/message:opacity-100">
               <button
-                onClick={() => {
-                  setEditContent(message.content);
-                  setEditing(true);
-                }}
-                className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
+                onClick={() => onRegenerate?.(message.id)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
               >
-                <Pencil className="h-4 w-4" />
+                <RefreshCw className="h-4 w-4" />
               </button>
               <button
                 onClick={handleCopy}
-                className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
               >
                 {copied ? (
                   <Check className="h-4 w-4 text-green-500" />
@@ -215,87 +272,42 @@ function ChatMessage({
                   <Copy className="h-4 w-4" />
                 )}
               </button>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-col items-start">
-          <div className="w-full">
-            {message.stream && (
-              <ThinkingPanel
-                stream={message.stream}
-                isStreaming={isStreaming}
-                open={thinkingOpen}
-                onToggle={() => setThinkingOpen((value) => !value)}
-              />
-            )}
-            <div className="prose-chat min-w-0 text-sm text-foreground">
-              <MarkdownRenderer citations={citations}>
-                {message.content}
-              </MarkdownRenderer>
-              {isStreaming && message.content.length > 0 && (
-                <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-foreground" />
-              )}
-            </div>
-            {isStreaming && message.content.length === 0 && (
-              <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-foreground" />
-                <span>{message.stream?.status ?? "Thinking"}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Assistant message actions */}
-          <div className="-ml-2 mt-1 flex h-8 max-w-full items-center gap-1 overflow-x-auto opacity-100 transition-opacity md:opacity-0 md:group-hover/message:opacity-100">
-            <button
-              onClick={() => onRegenerate?.(message.id)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
-            >
-              <RefreshCw className="h-4 w-4" />
-            </button>
-            <button
-              onClick={handleCopy}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
-            >
-              {copied ? (
-                <Check className="h-4 w-4 text-green-500" />
-              ) : (
-                <Copy className="h-4 w-4" />
-              )}
-            </button>
-            <button className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8">
-              <ThumbsUp className="h-4 w-4" />
-            </button>
-            <button className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8">
-              <ThumbsDown className="h-4 w-4" />
-            </button>
-            {citations.length > 0 && (
-              <button
-                onClick={() => setDrawerOpen(true)}
-                className="ml-1 flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-background px-3 text-xs text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
-              >
-                <Search className="h-3.5 w-3.5" />
-                <span>References</span>
-                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
-                  {citations.length}
-                </span>
+              <button className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8">
+                <ThumbsUp className="h-4 w-4" />
               </button>
-            )}
+              <button className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8">
+                <ThumbsDown className="h-4 w-4" />
+              </button>
+              {citations.length > 0 && (
+                <button
+                  onClick={() => setDrawerOpen(true)}
+                  className="ml-1 flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-background px-3 text-xs text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+                >
+                  <Search className="h-3.5 w-3.5" />
+                  <span>References</span>
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
+                    {citations.length}
+                  </span>
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {drawerOpen && (
-        <CitationDrawer
-          citations={citations}
-          onClose={() => setDrawerOpen(false)}
-        />
-      )}
-    </div>
-  );
-}
+        {drawerOpen && (
+          <CitationDrawer
+            citations={citations}
+            onClose={() => setDrawerOpen(false)}
+          />
+        )}
+      </div>
+    );
+  },
+  (prev, next) =>
+    prev.message === next.message && prev.isStreaming === next.isStreaming
+);
 
-function ThinkingPanel({
+const ThinkingPanel = memo(function ThinkingPanel({
   stream,
   isStreaming,
   open,
@@ -329,7 +341,7 @@ function ThinkingPanel({
 
     const tick = () => setNow(Date.now());
     tick();
-    const interval = window.setInterval(tick, 250);
+    const interval = window.setInterval(tick, 1000);
     return () => window.clearInterval(interval);
   }, [isStreaming]);
 
@@ -425,7 +437,7 @@ function ThinkingPanel({
       )}
     </div>
   );
-}
+});
 
 function formatDuration(ms: number) {
   if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;

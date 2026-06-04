@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -40,8 +40,12 @@ export function Sidebar({
   const router = useRouter();
   const pathname = usePathname();
   const supabase = useMemo(() => createClient(), []);
+  const lastFetchRef = useRef(0);
 
   const fetchSessions = useCallback(async () => {
+    const now = Date.now();
+    if (now - lastFetchRef.current < 500) return;
+    lastFetchRef.current = now;
     try {
       const res = await fetch("/api/sessions");
       if (res.ok) {
@@ -55,7 +59,7 @@ export function Sidebar({
 
   useEffect(() => {
     fetchSessions();
-  }, [fetchSessions, pathname]);
+  }, [fetchSessions]);
 
   useEffect(() => {
     const refreshFlag = window.sessionStorage.getItem("refreshSessions");
@@ -81,7 +85,6 @@ export function Sidebar({
     onMobileClose?.();
   }, [pathname, onMobileClose]);
 
-  // Lock body scroll when mobile drawer is open
   useEffect(() => {
     if (mobileOpen) {
       document.body.classList.add("sidebar-open");
@@ -170,33 +173,41 @@ export function Sidebar({
     router.refresh();
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const weekAgo = new Date(today);
-  weekAgo.setDate(weekAgo.getDate() - 7);
+  const filteredSessions = useMemo(
+    () =>
+      searchQuery
+        ? sessions.filter((s) =>
+            s.title.toLowerCase().includes(searchQuery.toLowerCase())
+          )
+        : sessions,
+    [sessions, searchQuery]
+  );
 
-  const groups: { label: string; items: ChatSession[] }[] = [
-    { label: "Today", items: [] },
-    { label: "Yesterday", items: [] },
-    { label: "Previous 7 Days", items: [] },
-    { label: "Older", items: [] },
-  ];
+  const groups = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 7);
 
-  const filteredSessions = searchQuery
-    ? sessions.filter((s) =>
-        s.title.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : sessions;
+    const result: { label: string; items: ChatSession[] }[] = [
+      { label: "Today", items: [] },
+      { label: "Yesterday", items: [] },
+      { label: "Previous 7 Days", items: [] },
+      { label: "Older", items: [] },
+    ];
 
-  for (const session of filteredSessions) {
-    const d = new Date(session.updated_at);
-    if (d >= today) groups[0]!.items.push(session);
-    else if (d >= yesterday) groups[1]!.items.push(session);
-    else if (d >= weekAgo) groups[2]!.items.push(session);
-    else groups[3]!.items.push(session);
-  }
+    for (const session of filteredSessions) {
+      const d = new Date(session.updated_at);
+      if (d >= today) result[0]!.items.push(session);
+      else if (d >= yesterday) result[1]!.items.push(session);
+      else if (d >= weekAgo) result[2]!.items.push(session);
+      else result[3]!.items.push(session);
+    }
+
+    return result;
+  }, [filteredSessions]);
 
   const collapsedSidebar = (
     <div className="hidden h-full w-14 shrink-0 flex-col items-center border-r border-border bg-sidebar py-3 md:flex">

@@ -16,7 +16,11 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ session, messages });
+    return NextResponse.json({ session, messages }, {
+      headers: {
+        "Cache-Control": "private, max-age=0, stale-while-revalidate=5",
+      },
+    });
   } catch {
     return NextResponse.json({ error: "Failed to fetch session" }, { status: 500 });
   }

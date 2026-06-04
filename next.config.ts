@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  poweredByHeader: false,
+  experimental: {
+    optimizePackageImports: ["lucide-react", "react-syntax-highlighter"],
+  },
 };
 
 export default nextConfig;

@@ -33,18 +33,20 @@ export default function ChatPage() {
   const initializedRef = useRef(false);
   const messagesRef = useRef<Message[]>([]);
   const closeMobileSidebar = useCallback(() => setMobileSidebarOpen(false), []);
+  const toggleSidebar = useCallback(
+    () => setSidebarCollapsed((prev) => !prev),
+    []
+  );
   const router = useRouter();
 
   useKeyboardShortcuts({
     onNewChat: () => router.push("/"),
   });
 
-  // Keep ref in sync
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
-  // Auto-generate session title from first user message
   const updateSessionTitle = useCallback(
     async (title: string) => {
       try {
@@ -53,11 +55,31 @@ export default function ChatPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title }),
         });
-        // Trigger sidebar refresh to show new title
         window.dispatchEvent(new CustomEvent("sessionTitleUpdated"));
       } catch {
         // Best effort
       }
+    },
+    [sessionId]
+  );
+
+  const saveUserMessage = useCallback(
+    async (content: string): Promise<string | null> => {
+      try {
+        const res = await fetch("/api/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, role: "user", content }),
+        });
+        if (res.ok) {
+          const { id } = await res.json();
+          return id;
+        }
+        console.error("Failed to save user message:", res.status);
+      } catch (err) {
+        console.error("Failed to save user message:", err);
+      }
+      return null;
     },
     [sessionId]
   );
@@ -80,32 +102,32 @@ export default function ChatPage() {
       let taggedThinking = "";
       let lineBuffer = "";
       const streamStartedAt = Date.now();
-      const updateStream = (updater: (stream: MessageStreamState) => MessageStreamState) => {
+
+      const streamState: MessageStreamState = {
+        thinking: "",
+        tools: [],
+        citations: [],
+        startedAt: streamStartedAt,
+        chunks: 0,
+      };
+
+      let rafId: number | null = null;
+
+      const flushToState = () => {
+        rafId = null;
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? {
-                  ...m,
-                  stream: updater(
-                    m.stream ?? {
-                      thinking: "",
-                      tools: [],
-                      citations: [],
-                      startedAt: streamStartedAt,
-                      chunks: 0,
-                    }
-                  ),
-                }
+              ? { ...m, content: fullContent, stream: { ...streamState } }
               : m
           )
         );
       };
-      const updateContent = () => {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId ? { ...m, content: fullContent } : m
-          )
-        );
+
+      const scheduleFlush = () => {
+        if (rafId === null) {
+          rafId = requestAnimationFrame(flushToState);
+        }
       };
 
       try {
@@ -150,31 +172,29 @@ export default function ChatPage() {
               if (!event) continue;
 
               if (event.type === "status") {
-                updateStream((stream) => ({ ...stream, status: event.label }));
+                streamState.status = event.label;
+                scheduleFlush();
               }
 
               if (event.type === "thinking") {
                 eventThinking += event.delta;
-                updateStream((stream) => ({
-                  ...stream,
-                  status: "Thinking",
-                  thinking: `${eventThinking}${taggedThinking}`,
-                }));
+                streamState.status = "Thinking";
+                streamState.thinking = `${eventThinking}${taggedThinking}`;
+                scheduleFlush();
               }
 
               if (event.type === "tool") {
-                updateStream((stream) => ({
-                  ...stream,
-                  status: `Using ${event.name}`,
-                  tools: [...stream.tools, event.name],
-                }));
+                streamState.status = `Using ${event.name}`;
+                streamState.tools = [...streamState.tools, event.name];
+                scheduleFlush();
               }
 
               if (event.type === "citations") {
-                updateStream((stream) => ({
-                  ...stream,
-                  citations: mergeCitations(stream.citations, event.citations),
-                }));
+                streamState.citations = mergeCitations(
+                  streamState.citations,
+                  event.citations
+                );
+                scheduleFlush();
               }
 
               if (event.type === "text") {
@@ -184,25 +204,20 @@ export default function ChatPage() {
                 taggedThinking = parsed.thinking
                   ? `${eventThinking ? "\n\n" : ""}${parsed.thinking}`
                   : "";
-                const now = Date.now();
-                updateStream((stream) => ({
-                  ...stream,
-                  status: parsed.open ? "Thinking" : "Responding",
-                  thinking: `${eventThinking}${taggedThinking}`,
-                  firstTokenAt: stream.firstTokenAt ?? now,
-                  chunks: stream.chunks + 1,
-                }));
-                updateContent();
+                streamState.status = parsed.open ? "Thinking" : "Responding";
+                streamState.thinking = `${eventThinking}${taggedThinking}`;
+                streamState.firstTokenAt =
+                  streamState.firstTokenAt ?? Date.now();
+                streamState.chunks += 1;
+                scheduleFlush();
               }
 
               if (event.type === "usage") {
-                updateStream((stream) => ({
-                  ...stream,
-                  inputTokens: event.inputTokens,
-                  outputTokens: event.outputTokens,
-                  reasoningTokens: event.reasoningTokens,
-                  totalTokens: event.totalTokens,
-                }));
+                streamState.inputTokens = event.inputTokens;
+                streamState.outputTokens = event.outputTokens;
+                streamState.reasoningTokens = event.reasoningTokens;
+                streamState.totalTokens = event.totalTokens;
+                scheduleFlush();
               }
 
               if (event.type === "error") {
@@ -215,11 +230,6 @@ export default function ChatPage() {
         if (!fullContent.trim()) {
           fullContent =
             "⚠️ No response received. The model may be temporarily unavailable.";
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId ? { ...m, content: fullContent } : m
-            )
-          );
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
@@ -229,23 +239,17 @@ export default function ChatPage() {
             err instanceof Error ? err.message : "Unknown error";
           console.error("Chat error:", errorMessage);
           fullContent = `⚠️ ${errorMessage}`;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId ? { ...m, content: fullContent } : m
-            )
-          );
         }
       } finally {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+
         setIsLoading(false);
         abortRef.current = null;
 
-        // Fallback: if no structured citations were received, extract from text
-        const currentStream = messagesRef.current.find(
-          (m) => m.id === assistantId
-        )?.stream;
-        const existingCitations = currentStream?.citations ?? [];
-        let finalCitations = existingCitations;
-
+        let finalCitations = streamState.citations;
         if (finalCitations.length === 0 && fullContent.trim()) {
           const textCitations = extractCitationsFromText(fullContent);
           if (textCitations.length > 0) {
@@ -253,25 +257,27 @@ export default function ChatPage() {
           }
         }
 
-        updateStream((stream) => ({
-          ...stream,
-          citations: finalCitations,
-          status: fullContent.trim() ? "Complete" : stream.status,
-          completedAt: Date.now(),
-        }));
+        streamState.citations = finalCitations;
+        streamState.status = fullContent.trim()
+          ? "Complete"
+          : streamState.status;
+        streamState.completedAt = Date.now();
 
-        // Persist citations to the message object
-        if (finalCitations.length > 0) {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? { ...m, citations: finalCitations }
-                : m
-            )
-          );
-        }
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? {
+                  ...m,
+                  content: fullContent,
+                  stream: { ...streamState },
+                  ...(finalCitations.length > 0
+                    ? { citations: finalCitations }
+                    : {}),
+                }
+              : m
+          )
+        );
 
-        // Save assistant message after stream completes
         if (fullContent.trim()) {
           try {
             const saveRes = await fetch("/api/messages", {
@@ -295,7 +301,10 @@ export default function ChatPage() {
                 )
               );
             } else {
-              console.error("Failed to save assistant message:", saveRes.status);
+              console.error(
+                "Failed to save assistant message:",
+                saveRes.status
+              );
             }
           } catch (saveErr) {
             console.error("Failed to save assistant message:", saveErr);
@@ -306,116 +315,73 @@ export default function ChatPage() {
     [sessionId]
   );
 
-  // Save a message to the DB and return its real id (or null on failure)
-  async function saveUserMessage(content: string): Promise<string | null> {
-    try {
-      const res = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, role: "user", content }),
-      });
-      if (res.ok) {
-        const { id } = await res.json();
-        return id;
+  const sendMessage = useCallback(
+    async (
+      content: string,
+      model: string = "auto",
+      webSearch: boolean = false,
+      xSearch: boolean = false
+    ) => {
+      if (!content.trim()) return;
+      setIsLoading(true);
+      const historyCount = messagesRef.current.length;
+
+      const userMessage: Message = {
+        id: `user-${Date.now()}`,
+        role: "user",
+        content,
+      };
+
+      const assistantId = `assistant-${Date.now()}`;
+      const assistantMessage: Message = {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        stream: createInitialStreamState(webSearch, xSearch),
+      };
+
+      setMessages((prev) => [...prev, userMessage, assistantMessage]);
+
+      if (messagesRef.current.filter((m) => m.role === "user").length === 0) {
+        const title =
+          content.length > 50 ? content.slice(0, 50) + "..." : content;
+        updateSessionTitle(title);
       }
-      console.error("Failed to save user message:", res.status);
-    } catch (err) {
-      console.error("Failed to save user message:", err);
-    }
-    return null;
-  }
 
-  async function sendMessage(
-    content: string,
-    model: string = "auto",
-    webSearch: boolean = false,
-    xSearch: boolean = false
-  ) {
-    if (!content.trim()) return;
-    setIsLoading(true);
-    const historyCount = messagesRef.current.length;
+      const savedId = await saveUserMessage(content);
+      const userDbId = savedId ?? userMessage.id;
 
-    const userMessage: Message = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      content,
-    };
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === userMessage.id ? { ...m, id: userDbId } : m
+        )
+      );
+      const idx = messagesRef.current.findIndex(
+        (m) => m.id === userMessage.id
+      );
+      if (idx !== -1) {
+        messagesRef.current[idx]!.id = userDbId;
+      } else {
+        messagesRef.current = [
+          ...messagesRef.current,
+          { ...userMessage, id: userDbId },
+        ];
+      }
 
-    const assistantId = `assistant-${Date.now()}`;
-    const assistantMessage: Message = {
-      id: assistantId,
-      role: "assistant",
-      content: "",
-      stream: createInitialStreamState(webSearch, xSearch),
-    };
+      const apiMessages = [
+        ...messagesRef.current.slice(0, historyCount).map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+        { role: "user" as const, content },
+      ];
 
-    setMessages((prev) => [...prev, userMessage, assistantMessage]);
+      await streamResponse(apiMessages, assistantId, model, webSearch, xSearch);
+    },
+    [saveUserMessage, streamResponse, updateSessionTitle]
+  );
 
-    // Auto-generate title from first user message
-    if (messagesRef.current.filter((m) => m.role === "user").length === 0) {
-      const title =
-        content.length > 50 ? content.slice(0, 50) + "..." : content;
-      updateSessionTitle(title);
-    }
-
-    // Save user message to DB explicitly and get real DB id
-    const savedId = await saveUserMessage(content);
-    const userDbId = savedId ?? userMessage.id;
-
-    // Update user message with real DB id for future edit/delete operations
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === userMessage.id ? { ...m, id: userDbId } : m
-      )
-    );
-    const idx = messagesRef.current.findIndex(
-      (m) => m.id === userMessage.id
-    );
-    if (idx !== -1) {
-      messagesRef.current[idx]!.id = userDbId;
-    } else {
-      // First message on fresh page: ref hasn't synced yet, add manually
-      messagesRef.current = [...messagesRef.current, { ...userMessage, id: userDbId }];
-    }
-
-    // Build apiMessages: history + new user message, exclude assistant placeholder
-    const apiMessages = [
-      ...messagesRef.current.slice(0, historyCount).map((m) => ({
-        role: m.role,
-        content: m.content,
-      })),
-      { role: "user" as const, content },
-    ];
-
-    await streamResponse(apiMessages, assistantId, model, webSearch, xSearch);
-  }
-
-  // Discard messages after userIdx, append a new assistant placeholder, and stream a response
-  async function regenerateFrom(userIdx: number) {
-    const contextMessages = messagesRef.current.slice(0, userIdx + 1);
-
-    const assistantId = `assistant-${Date.now()}`;
-    const assistantMessage: Message = {
-      id: assistantId,
-      role: "assistant",
-      content: "",
-      stream: createInitialStreamState(false, false),
-    };
-
-    const newMessages = [...contextMessages, assistantMessage];
-    setMessages(newMessages);
-    messagesRef.current = newMessages;
-
-    const apiMessages = contextMessages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-
-    await streamResponse(apiMessages, assistantId, "auto", false, false);
-  }
-
-  // Delete a message and all subsequent messages in the session from DB
-  async function deleteMessagesFrom(messageId: string) {
+  const deleteMessagesFrom = useCallback(async (messageId: string) => {
     try {
       const res = await fetch("/api/messages", {
         method: "DELETE",
@@ -428,79 +394,110 @@ export default function ChatPage() {
     } catch (err) {
       console.error("Failed to delete messages:", err);
     }
-  }
+  }, []);
 
-  // Edit user message: replace content, discard subsequent messages, re-generate
-  async function handleEditMessage(messageId: string, newContent: string) {
-    if (!newContent.trim()) return;
+  const regenerateFrom = useCallback(
+    async (userIdx: number) => {
+      const contextMessages = messagesRef.current.slice(0, userIdx + 1);
 
-    const idx = messagesRef.current.findIndex((m) => m.id === messageId);
-    if (idx === -1) return;
+      const assistantId = `assistant-${Date.now()}`;
+      const assistantMessage: Message = {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        stream: createInitialStreamState(false, false),
+      };
 
-    // Delete old messages first, then save the edited one.
-    // NOTE: save-before-delete is unsafe because the range DELETE
-    // (created_at >= target) would remove the just-inserted row.
-    await deleteMessagesFrom(messageId);
+      const newMessages = [...contextMessages, assistantMessage];
+      setMessages(newMessages);
+      messagesRef.current = newMessages;
 
-    const savedId = await saveUserMessage(newContent);
-    if (!savedId) {
-      console.error("Edit warning: old messages deleted but new message failed to save");
-    }
+      const apiMessages = contextMessages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
 
-    messagesRef.current[idx] = {
-      ...messagesRef.current[idx]!,
-      content: newContent,
-      id: savedId ?? messageId,
-    };
+      await streamResponse(apiMessages, assistantId, "auto", false, false);
+    },
+    [streamResponse]
+  );
 
-    if (idx === 0) {
-      const title =
-        newContent.length > 50 ? newContent.slice(0, 50) + "..." : newContent;
-      updateSessionTitle(title);
-    }
+  const handleEditMessage = useCallback(
+    async (messageId: string, newContent: string) => {
+      if (!newContent.trim()) return;
 
-    await regenerateFrom(idx);
-  }
+      const idx = messagesRef.current.findIndex((m) => m.id === messageId);
+      if (idx === -1) return;
 
-  // Regenerate: re-run the assistant response using the same conversation context
-  async function handleRegenerate(messageId: string) {
-    const idx = messagesRef.current.findIndex((m) => m.id === messageId);
-    if (idx === -1) return;
+      await deleteMessagesFrom(messageId);
 
-    for (let i = idx - 1; i >= 0; i--) {
-      if (messagesRef.current[i]!.role === "user") {
-        // Remove old assistant response (and anything after) from DB
-        const firstDiscarded = messagesRef.current[i + 1];
-        if (firstDiscarded) {
-          await deleteMessagesFrom(firstDiscarded.id);
-        }
-        await regenerateFrom(i);
-        return;
+      const savedId = await saveUserMessage(newContent);
+      if (!savedId) {
+        console.error(
+          "Edit warning: old messages deleted but new message failed to save"
+        );
       }
-    }
-  }
 
-  // Load existing messages on mount
+      messagesRef.current[idx] = {
+        ...messagesRef.current[idx]!,
+        content: newContent,
+        id: savedId ?? messageId,
+      };
+
+      if (idx === 0) {
+        const title =
+          newContent.length > 50
+            ? newContent.slice(0, 50) + "..."
+            : newContent;
+        updateSessionTitle(title);
+      }
+
+      await regenerateFrom(idx);
+    },
+    [deleteMessagesFrom, saveUserMessage, updateSessionTitle, regenerateFrom]
+  );
+
+  const handleRegenerate = useCallback(
+    async (messageId: string) => {
+      const idx = messagesRef.current.findIndex((m) => m.id === messageId);
+      if (idx === -1) return;
+
+      for (let i = idx - 1; i >= 0; i--) {
+        if (messagesRef.current[i]!.role === "user") {
+          const firstDiscarded = messagesRef.current[i + 1];
+          if (firstDiscarded) {
+            await deleteMessagesFrom(firstDiscarded.id);
+          }
+          await regenerateFrom(i);
+          return;
+        }
+      }
+    },
+    [deleteMessagesFrom, regenerateFrom]
+  );
+
   useEffect(() => {
     if (initializedRef.current) return;
     initializedRef.current = true;
 
     async function loadSession() {
-      // Check for pending message from home page FIRST
       const pending = window.sessionStorage.getItem(
         `pending-msg-${sessionId}`
       );
 
       if (pending) {
-        // New session: skip fetch (session was just created, has zero messages)
         window.sessionStorage.removeItem(`pending-msg-${sessionId}`);
-        let parsed: { content: string; model: string; webSearch?: boolean; xSearch?: boolean };
+        let parsed: {
+          content: string;
+          model: string;
+          webSearch?: boolean;
+          xSearch?: boolean;
+        };
         try {
           parsed = JSON.parse(pending);
         } catch {
           parsed = { content: pending, model: "auto" };
         }
-        // Dispatch pending message immediately (no artificial delay)
         sendMessage(
           parsed.content,
           parsed.model,
@@ -510,7 +507,6 @@ export default function ChatPage() {
         return;
       }
 
-      // Existing session: load messages from DB
       try {
         const res = await fetch(`/api/sessions/${sessionId}`);
         if (res.ok) {
@@ -534,21 +530,23 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  function handleStop() {
+  const handleStop = useCallback(() => {
     abortRef.current?.abort();
-  }
+  }, []);
+
+  const handleNewChat = useCallback(() => router.push("/"), [router]);
 
   return (
     <div className="flex h-full min-w-0">
       <Sidebar
         collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onToggle={toggleSidebar}
         mobileOpen={mobileSidebarOpen}
         onMobileClose={closeMobileSidebar}
       />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <TopBar onNewChat={() => router.push("/")} />
+        <TopBar onNewChat={handleNewChat} />
         <header className="flex h-14 shrink-0 items-center justify-between px-3 pt-[env(safe-area-inset-top)] md:hidden">
           <button
             type="button"
@@ -573,7 +571,7 @@ export default function ChatPage() {
             <p className="mt-3 px-4 text-center text-xs text-muted-foreground">
               Grok can make mistakes. Verify important information.
             </p>
-            <PromptSuggestions onSelect={(text) => sendMessage(text)} />
+            <PromptSuggestions onSelect={sendMessage} />
           </div>
         ) : (
           <>

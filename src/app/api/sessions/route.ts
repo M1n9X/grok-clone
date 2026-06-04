@@ -8,7 +8,11 @@ import {
 export async function GET() {
   try {
     const sessions = await getSessions();
-    return NextResponse.json(sessions);
+    return NextResponse.json(sessions, {
+      headers: {
+        "Cache-Control": "private, max-age=1, stale-while-revalidate=10",
+      },
+    });
   } catch {
     return NextResponse.json({ error: "Failed to fetch sessions" }, { status: 500 });
   }
