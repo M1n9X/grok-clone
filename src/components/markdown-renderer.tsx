@@ -1,15 +1,28 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import remarkGfm from "remark-gfm";
 import { useState, useCallback, useMemo, memo, type ReactNode } from "react";
 import { Copy, Check, ExternalLink } from "lucide-react";
 import { type Citation, extractDomain } from "@/lib/chat-stream-events";
 
-const REMARK_PLUGINS = [remarkGfm];
-
 const ReactMarkdownLazy = dynamic(
-  () => import("react-markdown").then((mod) => mod.default),
+  async () => {
+    const [{ default: ReactMarkdown }, { default: remarkGfm }] =
+      await Promise.all([
+        import("react-markdown"),
+        import("remark-gfm"),
+      ]);
+    const plugins = [remarkGfm];
+    function Md(props: { children: string; components?: unknown }) {
+      return (
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        <ReactMarkdown remarkPlugins={plugins} components={props.components as any}>
+          {props.children}
+        </ReactMarkdown>
+      );
+    }
+    return Md;
+  },
   { ssr: false, loading: () => null }
 );
 
@@ -229,7 +242,7 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
   }, [citations]);
 
   return (
-    <ReactMarkdownLazy remarkPlugins={REMARK_PLUGINS} components={components}>
+    <ReactMarkdownLazy components={components}>
       {children}
     </ReactMarkdownLazy>
   );

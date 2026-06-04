@@ -199,13 +199,24 @@ export default function ChatPage() {
 
               if (event.type === "text") {
                 rawTextContent += event.delta;
-                const parsed = parseTaggedThinkingSummary(rawTextContent);
-                fullContent = parsed.content;
-                taggedThinking = parsed.thinking
-                  ? `${eventThinking ? "\n\n" : ""}${parsed.thinking}`
-                  : "";
-                streamState.status = parsed.open ? "Thinking" : "Responding";
-                streamState.thinking = `${eventThinking}${taggedThinking}`;
+                const hasTag =
+                  rawTextContent.includes("<thinking_summary") ||
+                  rawTextContent.endsWith("<") ||
+                  taggedThinking !== "";
+                if (hasTag) {
+                  const parsed = parseTaggedThinkingSummary(rawTextContent);
+                  fullContent = parsed.content;
+                  taggedThinking = parsed.thinking
+                    ? `${eventThinking ? "\n\n" : ""}${parsed.thinking}`
+                    : "";
+                  streamState.status = parsed.open
+                    ? "Thinking"
+                    : "Responding";
+                  streamState.thinking = `${eventThinking}${taggedThinking}`;
+                } else {
+                  fullContent = rawTextContent;
+                  streamState.status = "Responding";
+                }
                 streamState.firstTokenAt =
                   streamState.firstTokenAt ?? Date.now();
                 streamState.chunks += 1;
@@ -348,25 +359,20 @@ export default function ChatPage() {
         updateSessionTitle(title);
       }
 
-      const savedId = await saveUserMessage(content);
-      const userDbId = savedId ?? userMessage.id;
-
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === userMessage.id ? { ...m, id: userDbId } : m
-        )
-      );
-      const idx = messagesRef.current.findIndex(
-        (m) => m.id === userMessage.id
-      );
-      if (idx !== -1) {
-        messagesRef.current[idx]!.id = userDbId;
-      } else {
-        messagesRef.current = [
-          ...messagesRef.current,
-          { ...userMessage, id: userDbId },
-        ];
-      }
+      // Save user message in background — don't block streaming start
+      saveUserMessage(content).then((savedId) => {
+        if (savedId) {
+          const idx = messagesRef.current.findIndex(
+            (m) => m.id === userMessage.id
+          );
+          if (idx !== -1) messagesRef.current[idx]!.id = savedId;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === userMessage.id ? { ...m, id: savedId } : m
+            )
+          );
+        }
+      });
 
       const apiMessages = [
         ...messagesRef.current.slice(0, historyCount).map((m) => ({

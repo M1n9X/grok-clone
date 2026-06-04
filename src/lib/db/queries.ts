@@ -17,7 +17,7 @@ export async function getSession(id: string): Promise<ChatSession | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("chat_sessions")
-    .select("*")
+    .select("id, title, user_id, model, created_at, updated_at")
     .eq("id", id)
     .single();
 
@@ -72,7 +72,8 @@ export async function getMessages(sessionId: string): Promise<ChatMessage[]> {
     .from("chat_messages")
     .select("id, session_id, role, content, created_at, user_id")
     .eq("session_id", sessionId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .limit(200);
 
   if (error) throw error;
   return data ?? [];

@@ -6,7 +6,6 @@ import { PanelLeft } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
 import { ChatInput } from "@/components/chat-input";
 import { GrokLogo } from "@/components/grok-logo";
-import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { PromptSuggestions } from "@/components/prompt-suggestions";
 import { TopBar } from "@/components/top-bar";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -91,9 +90,9 @@ export default function HomePage() {
               <div className="mx-auto flex max-w-3xl flex-col items-start gap-4 py-6">
                 <div className="flex flex-col items-end self-end">
                   <div className="max-w-[80%] rounded-2xl bg-accent px-4 py-2.5">
-                    <div className="prose-chat text-sm text-foreground">
-                      <MarkdownRenderer>{sendingMessage}</MarkdownRenderer>
-                    </div>
+                    <p className="whitespace-pre-wrap text-sm text-foreground">
+                      {sendingMessage}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
