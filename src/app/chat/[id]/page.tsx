@@ -13,6 +13,8 @@ import {
 import {
   decodeStreamEventLine,
   parseTaggedThinkingSummary,
+  extractCitationsFromText,
+  type Citation,
 } from "@/lib/chat-stream-events";
 import { GrokLogo } from "@/components/grok-logo";
 import { PromptSuggestions } from "@/components/prompt-suggestions";
@@ -88,6 +90,7 @@ export default function ChatPage() {
                     m.stream ?? {
                       thinking: "",
                       tools: [],
+                      citations: [],
                       startedAt: streamStartedAt,
                       chunks: 0,
                     }
@@ -168,6 +171,13 @@ export default function ChatPage() {
                 }));
               }
 
+              if (event.type === "citations") {
+                updateStream((stream) => ({
+                  ...stream,
+                  citations: mergeCitations(stream.citations, event.citations),
+                }));
+              }
+
               if (event.type === "text") {
                 rawTextContent += event.delta;
                 const parsed = parseTaggedThinkingSummary(rawTextContent);
@@ -229,11 +239,38 @@ export default function ChatPage() {
       } finally {
         setIsLoading(false);
         abortRef.current = null;
+
+        // Fallback: if no structured citations were received, extract from text
+        const currentStream = messagesRef.current.find(
+          (m) => m.id === assistantId
+        )?.stream;
+        const existingCitations = currentStream?.citations ?? [];
+        let finalCitations = existingCitations;
+
+        if (finalCitations.length === 0 && fullContent.trim()) {
+          const textCitations = extractCitationsFromText(fullContent);
+          if (textCitations.length > 0) {
+            finalCitations = textCitations;
+          }
+        }
+
         updateStream((stream) => ({
           ...stream,
+          citations: finalCitations,
           status: fullContent.trim() ? "Complete" : stream.status,
           completedAt: Date.now(),
         }));
+
+        // Persist citations to the message object
+        if (finalCitations.length > 0) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, citations: finalCitations }
+                : m
+            )
+          );
+        }
 
         // Save assistant message after stream completes
         if (fullContent.trim()) {
@@ -501,7 +538,23 @@ function createInitialStreamState(
       webSearch || xSearch ? "Preparing search" : "Preparing response",
     thinking: "",
     tools: [],
+    citations: [],
     startedAt: Date.now(),
     chunks: 0,
   };
+}
+
+function mergeCitations(
+  existing: Citation[],
+  incoming: Citation[]
+): Citation[] {
+  const seen = new Set(existing.map((c) => c.url));
+  const merged = [...existing];
+  for (const c of incoming) {
+    if (!seen.has(c.url)) {
+      merged.push({ ...c, index: merged.length + 1 });
+      seen.add(c.url);
+    }
+  }
+  return merged;
 }

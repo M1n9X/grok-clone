@@ -1,8 +1,17 @@
+export interface Citation {
+  index: number;
+  url: string;
+  title: string;
+  domain: string;
+  description?: string;
+}
+
 export type ChatStreamEvent =
   | { type: "status"; label: string }
   | { type: "thinking"; delta: string }
   | { type: "text"; delta: string }
   | { type: "tool"; name: string; input?: string }
+  | { type: "citations"; citations: Citation[] }
   | {
       type: "usage";
       inputTokens?: number;
@@ -211,6 +220,10 @@ export function extractResponsesApiEvents(payload: UnknownRecord) {
     const itemType = firstString(item?.type);
     if (itemType?.includes("search")) {
       events.push({ type: "tool", name: readableToolName(itemType) });
+      const citations = extractCitationsFromSearchItem(item);
+      if (citations.length > 0) {
+        events.push({ type: "citations", citations });
+      }
     }
   }
 
@@ -325,4 +338,80 @@ function omitUndefined(record: UnknownRecord) {
   return Object.fromEntries(
     Object.entries(record).filter(([, value]) => value !== undefined)
   );
+}
+
+function extractCitationsFromSearchItem(item: UnknownRecord | undefined): Citation[] {
+  if (!item) return [];
+
+  const results = item.results ?? item.search_results ?? item.entries ?? item.sources;
+  if (!Array.isArray(results)) return [];
+
+  const citations: Citation[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i] as UnknownRecord;
+    const url = firstString(r.url, r.link);
+    if (!url) continue;
+    const title = firstString(r.title, r.name) ?? extractDomain(url);
+    citations.push({
+      index: i + 1,
+      url,
+      title,
+      domain: extractDomain(url),
+      description: firstString(r.snippet, r.description, r.summary),
+    });
+  }
+  return citations;
+}
+
+export function extractDomain(url: string): string {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+export function extractCitationsFromText(text: string): Citation[] {
+  const citations: Citation[] = [];
+  const seen = new Set<string>();
+
+  const pattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+  let match;
+
+  while ((match = pattern.exec(text)) !== null) {
+    const url = match[2];
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+
+    const linkText = match[1]!;
+    const isCitationStyle = /^(\[\d+\]|\d+)$/.test(linkText);
+
+    let title: string;
+    if (isCitationStyle) {
+      const contextAfter = text.slice(match.index + match[0].length).trim();
+      const titleMatch = contextAfter.match(/^["""]([^"""\n]{3,80})["""]/);
+      if (titleMatch) {
+        title = titleMatch[1]!;
+      } else {
+        title = extractDomain(url);
+      }
+    } else {
+      title = linkText;
+    }
+
+    const descriptionMatch = text
+      .slice(match.index + match[0].length)
+      .match(/^[.:;]?\s*([^\n]{10,200}?)(?:\n\n|\.\s|\.$|$)/);
+
+    citations.push({
+      index: citations.length + 1,
+      url,
+      title,
+      domain: extractDomain(url),
+      description: descriptionMatch?.[1]?.trim(),
+    });
+  }
+
+  return citations;
 }

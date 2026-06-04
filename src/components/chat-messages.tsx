@@ -11,15 +11,19 @@ import {
   Brain,
   Search,
   ArrowDown,
+  X,
+  ExternalLink,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { useToast } from "@/components/toast";
+import type { Citation } from "@/lib/chat-stream-events";
 
 export interface MessageStreamState {
   status?: string;
   thinking: string;
   tools: string[];
+  citations: Citation[];
   startedAt?: number;
   firstTokenAt?: number;
   completedAt?: number;
@@ -35,6 +39,7 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   stream?: MessageStreamState;
+  citations?: Citation[];
 }
 
 interface ChatMessagesProps {
@@ -133,7 +138,10 @@ function ChatMessage({
   const [editing, setEditing] = useState(false);
   const [thinkingOpen, setThinkingOpen] = useState(true);
   const [editContent, setEditContent] = useState(message.content);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const { toast } = useToast();
+
+  const citations = message.citations ?? message.stream?.citations ?? [];
 
   async function handleCopy() {
     await navigator.clipboard.writeText(message.content);
@@ -222,7 +230,9 @@ function ChatMessage({
               />
             )}
             <div className="prose-chat min-w-0 text-sm text-foreground">
-              <MarkdownRenderer>{message.content}</MarkdownRenderer>
+              <MarkdownRenderer citations={citations}>
+                {message.content}
+              </MarkdownRenderer>
               {isStreaming && message.content.length > 0 && (
                 <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-foreground" />
               )}
@@ -259,8 +269,27 @@ function ChatMessage({
             <button className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8">
               <ThumbsDown className="h-4 w-4" />
             </button>
+            {citations.length > 0 && (
+              <button
+                onClick={() => setDrawerOpen(true)}
+                className="ml-1 flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-background px-3 text-xs text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+              >
+                <Search className="h-3.5 w-3.5" />
+                <span>References</span>
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
+                  {citations.length}
+                </span>
+              </button>
+            )}
           </div>
         </div>
+      )}
+
+      {drawerOpen && (
+        <CitationDrawer
+          citations={citations}
+          onClose={() => setDrawerOpen(false)}
+        />
       )}
     </div>
   );
@@ -401,4 +430,94 @@ function ThinkingPanel({
 function formatDuration(ms: number) {
   if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function CitationDrawer({
+  citations,
+  onClose,
+}: {
+  citations: Citation[];
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKey);
+    document.body.classList.add("drawer-open");
+    return () => {
+      window.removeEventListener("keydown", handleKey);
+      document.body.classList.remove("drawer-open");
+    };
+  }, [onClose]);
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm transition-opacity"
+        onClick={onClose}
+      />
+      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-background shadow-2xl animate-drawer-in sm:max-w-sm">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
+          <div className="flex items-center gap-2">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold text-foreground">
+              References
+            </h2>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              {citations.length}
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <div className="space-y-2">
+            {citations.map((citation, i) => (
+              <a
+                key={`${citation.url}-${i}`}
+                href={citation.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group/cite flex gap-3 rounded-xl border border-border p-3 transition-colors hover:bg-muted"
+              >
+                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-muted text-[10px] font-bold text-muted-foreground">
+                  {citation.index}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <img
+                      src={`https://www.google.com/s2/favicons?domain=${citation.domain}&sz=32`}
+                      alt=""
+                      className="h-3.5 w-3.5 rounded-sm"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = "none";
+                      }}
+                    />
+                    <span className="truncate text-xs text-muted-foreground">
+                      {citation.domain}
+                    </span>
+                  </div>
+                  <div className="mt-1 line-clamp-2 text-sm font-medium leading-snug text-foreground group-hover/cite:text-primary">
+                    {citation.title}
+                  </div>
+                  {citation.description && (
+                    <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                      {citation.description}
+                    </div>
+                  )}
+                </div>
+                <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/cite:opacity-100" />
+              </a>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
+  );
 }

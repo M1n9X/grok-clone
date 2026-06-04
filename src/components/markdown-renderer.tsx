@@ -3,7 +3,8 @@
 import dynamic from "next/dynamic";
 import remarkGfm from "remark-gfm";
 import { useState, useCallback } from "react";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, ExternalLink } from "lucide-react";
+import { type Citation, extractDomain } from "@/lib/chat-stream-events";
 
 const ReactMarkdownLazy = dynamic(
   () => import("react-markdown").then((mod) => mod.default),
@@ -79,7 +80,81 @@ function CodeBlock({
   );
 }
 
-function MarkdownRenderer({ children }: { children: string }) {
+function CitationLink({
+  href,
+  citation,
+}: {
+  href: string;
+  citation: Citation | undefined;
+}) {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const title = citation?.title ?? citation?.domain ?? extractDomain(href);
+  const domain = citation?.domain ?? extractDomain(href);
+
+  return (
+    <span
+      className="citation-wrapper relative inline-block align-baseline"
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="citation-chip inline-flex items-center gap-1 rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-xs font-medium no-underline transition-colors hover:bg-muted"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <img
+          src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
+          alt=""
+          className="h-3 w-3 rounded-[2px]"
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = "none";
+          }}
+        />
+        <span className="max-w-[120px] truncate text-foreground/80">
+          {title}
+        </span>
+      </a>
+
+      {showTooltip && (
+        <div className="citation-tooltip absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-border bg-popover p-3 shadow-xl">
+          <div className="flex items-center gap-1.5">
+            <img
+              src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
+              alt=""
+              className="h-3.5 w-3.5 rounded-sm"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = "none";
+              }}
+            />
+            <span className="text-xs text-muted-foreground">{domain}</span>
+          </div>
+          <div className="mt-1.5 line-clamp-2 text-sm font-medium leading-snug text-foreground">
+            {citation?.title ?? title}
+          </div>
+          {citation?.description && (
+            <div className="mt-1.5 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+              {citation.description}
+            </div>
+          )}
+          <div className="mt-2 flex items-center gap-1 truncate text-[10px] text-muted-foreground/70">
+            <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+            <span className="truncate">{href}</span>
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+function MarkdownRenderer({
+  children,
+  citations,
+}: {
+  children: string;
+  citations?: Citation[];
+}) {
   return (
     <ReactMarkdownLazy
       remarkPlugins={[remarkGfm]}
@@ -100,6 +175,23 @@ function MarkdownRenderer({ children }: { children: string }) {
         },
         pre({ children }) {
           return <>{children}</>;
+        },
+        a({ href, children }) {
+          if (!href) return <span>{children}</span>;
+
+          const text = String(children).replace(/\n/g, "").trim();
+          const isCitation = /^\[?\d+\]?$/.test(text);
+
+          if (isCitation && citations && citations.length > 0) {
+            const citation = citations.find((c) => c.url === href);
+            return <CitationLink href={href} citation={citation} />;
+          }
+
+          return (
+            <a href={href} target="_blank" rel="noopener noreferrer">
+              {children}
+            </a>
+          );
         },
       }}
     >
