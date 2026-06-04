@@ -118,7 +118,7 @@ export function ChatInput({
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-3 sm:px-4">
+    <div className="mx-auto w-full max-w-3xl px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4">
       <div className="overflow-hidden rounded-[1.75rem] border border-border bg-input shadow-sm transition-shadow focus-within:border-input-ring sm:rounded-3xl">
         <div className="flex flex-wrap items-end gap-1 p-2 sm:flex-nowrap">
           <textarea
@@ -128,7 +128,7 @@ export function ChatInput({
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             rows={1}
-            className="order-1 my-1.5 max-h-[40vh] min-h-6 min-w-0 basis-full resize-none bg-transparent px-2 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground sm:order-none sm:max-h-[200px] sm:flex-1 sm:basis-auto"
+            className="order-1 my-1.5 max-h-[40dvh] min-h-6 min-w-0 basis-full resize-none bg-transparent px-2 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground sm:order-none sm:max-h-[200px] sm:flex-1 sm:basis-auto"
           />
 
           <button

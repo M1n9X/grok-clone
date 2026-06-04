@@ -6,8 +6,7 @@ import { PanelLeft } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
 import { ChatInput } from "@/components/chat-input";
 import { GrokLogo } from "@/components/grok-logo";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
 
 export default function HomePage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -59,7 +58,7 @@ export default function HomePage() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 shrink-0 items-center justify-between px-3 md:hidden">
+        <header className="flex h-14 shrink-0 items-center justify-between px-3 pt-[env(safe-area-inset-top)] md:hidden">
           <button
             type="button"
             onClick={() => setMobileSidebarOpen(true)}
@@ -79,9 +78,7 @@ export default function HomePage() {
                 <div className="flex flex-col items-end self-end">
                   <div className="max-w-[80%] rounded-2xl bg-accent px-4 py-2.5">
                     <div className="prose-chat text-sm text-foreground">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {sendingMessage}
-                      </ReactMarkdown>
+                      <MarkdownRenderer>{sendingMessage}</MarkdownRenderer>
                     </div>
                   </div>
                 </div>

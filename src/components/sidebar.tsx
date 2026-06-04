@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -37,7 +37,7 @@ export function Sidebar({
   const [editTitle, setEditTitle] = useState("");
   const router = useRouter();
   const pathname = usePathname();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -78,6 +78,16 @@ export function Sidebar({
   useEffect(() => {
     onMobileClose?.();
   }, [pathname, onMobileClose]);
+
+  // Lock body scroll when mobile drawer is open
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.classList.add("sidebar-open");
+    } else {
+      document.body.classList.remove("sidebar-open");
+    }
+    return () => document.body.classList.remove("sidebar-open");
+  }, [mobileOpen]);
 
   async function handleNewChat() {
     try {
@@ -327,15 +337,15 @@ export function Sidebar({
                             <div className="ml-1 flex shrink-0 items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100">
                               <button
                                 onClick={(e) => startEditing(session, e)}
-                                className="rounded p-1 text-muted-foreground hover:bg-sidebar-active hover:text-foreground"
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-sidebar-active hover:text-foreground md:h-auto md:w-auto md:p-1"
                               >
-                                <Pencil className="h-3 w-3" />
+                                <Pencil className="h-3.5 w-3.5 md:h-3 md:w-3" />
                               </button>
                               <button
                                 onClick={(e) => handleDelete(session.id, e)}
-                                className="rounded p-1 text-muted-foreground hover:bg-red-500/20 hover:text-red-500"
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-red-500/20 hover:text-red-500 md:h-auto md:w-auto md:p-1"
                               >
-                                <Trash2 className="h-3 w-3" />
+                                <Trash2 className="h-3.5 w-3.5 md:h-3 md:w-3" />
                               </button>
                             </div>
                           </>
@@ -349,10 +359,10 @@ export function Sidebar({
         )}
       </div>
 
-      <div className="border-t border-border p-2">
+      <div className="border-t border-border p-2 safe-bottom">
         <button
           onClick={handleLogout}
-          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
         >
           <LogOut className="h-4 w-4" />
           Sign Out
@@ -377,7 +387,7 @@ export function Sidebar({
             onClick={onMobileClose}
             className="absolute inset-0 bg-black/45"
           />
-          <aside className="relative h-full w-[min(82vw,20rem)] border-r border-border bg-sidebar shadow-2xl">
+          <aside className="relative h-full w-[min(82vw,20rem)] border-r border-border bg-sidebar shadow-2xl safe-bottom">
             {expandedSidebar}
           </aside>
         </div>

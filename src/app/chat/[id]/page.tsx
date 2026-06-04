@@ -411,7 +411,7 @@ export default function ChatPage() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 shrink-0 items-center justify-between px-3 md:hidden">
+        <header className="flex h-14 shrink-0 items-center justify-between px-3 pt-[env(safe-area-inset-top)] md:hidden">
           <button
             type="button"
             onClick={() => setMobileSidebarOpen(true)}

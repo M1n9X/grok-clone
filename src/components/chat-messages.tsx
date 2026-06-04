@@ -12,8 +12,7 @@ import {
   Search,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
 
 export interface MessageStreamState {
   status?: string;
@@ -137,28 +136,26 @@ function ChatMessage({
           ) : (
             <div className="max-w-[90%] rounded-3xl rounded-br-lg border border-border bg-user-bubble px-4 py-3 text-user-bubble-foreground">
               <div className="prose-chat text-sm">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {message.content}
-                </ReactMarkdown>
+                <MarkdownRenderer>{message.content}</MarkdownRenderer>
               </div>
             </div>
           )}
 
           {/* User message actions */}
           {!editing && (
-            <div className="mt-1 flex h-8 items-center justify-end gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/message:opacity-100">
+            <div className="mt-1 flex h-8 items-center justify-end gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover/message:opacity-100">
               <button
                 onClick={() => {
                   setEditContent(message.content);
                   setEditing(true);
                 }}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+                className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
               >
                 <Pencil className="h-4 w-4" />
               </button>
               <button
                 onClick={handleCopy}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+                className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
               >
                 {copied ? (
                   <Check className="h-4 w-4 text-green-500" />
@@ -181,9 +178,7 @@ function ChatMessage({
               />
             )}
             <div className="prose-chat min-w-0 text-sm text-foreground">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {message.content}
-              </ReactMarkdown>
+              <MarkdownRenderer>{message.content}</MarkdownRenderer>
               {isStreaming && message.content.length > 0 && (
                 <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-foreground" />
               )}
@@ -197,16 +192,16 @@ function ChatMessage({
           </div>
 
           {/* Assistant message actions */}
-          <div className="-ml-2 mt-1 flex h-8 max-w-full items-center gap-0.5 overflow-x-auto opacity-100 transition-opacity md:opacity-0 md:group-hover/message:opacity-100">
+          <div className="-ml-2 mt-1 flex h-8 max-w-full items-center gap-1 overflow-x-auto opacity-100 transition-opacity md:opacity-0 md:group-hover/message:opacity-100">
             <button
               onClick={() => onRegenerate?.(message.id)}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
             >
               <RefreshCw className="h-4 w-4" />
             </button>
             <button
               onClick={handleCopy}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
             >
               {copied ? (
                 <Check className="h-4 w-4 text-green-500" />
@@ -214,10 +209,10 @@ function ChatMessage({
                 <Copy className="h-4 w-4" />
               )}
             </button>
-            <button className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground">
+            <button className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8">
               <ThumbsUp className="h-4 w-4" />
             </button>
-            <button className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground">
+            <button className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8">
               <ThumbsDown className="h-4 w-4" />
             </button>
           </div>
