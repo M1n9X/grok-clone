@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import remarkGfm from "remark-gfm";
-import { useState, useCallback } from "react";
+import { useState, useCallback, type ReactNode } from "react";
 import { Copy, Check, ExternalLink } from "lucide-react";
 import { type Citation, extractDomain } from "@/lib/chat-stream-events";
 
@@ -148,6 +148,16 @@ function CitationLink({
   );
 }
 
+function extractText(children: ReactNode): string {
+  if (typeof children === "string") return children;
+  if (typeof children === "number") return String(children);
+  if (!children) return "";
+  if (Array.isArray(children)) return children.map(extractText).join("");
+  if (typeof children === "object" && children !== null && "props" in children)
+    return extractText((children as { props: { children?: ReactNode } }).props.children);
+  return "";
+}
+
 function MarkdownRenderer({
   children,
   citations,
@@ -179,7 +189,7 @@ function MarkdownRenderer({
         a({ href, children }) {
           if (!href) return <span>{children}</span>;
 
-          const text = String(children).replace(/\n/g, "").trim();
+          const text = extractText(children).trim();
           const isCitation = /^\[?\d+\]?$/.test(text);
 
           if (isCitation && citations && citations.length > 0) {

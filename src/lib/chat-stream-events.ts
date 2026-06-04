@@ -75,7 +75,6 @@ export function buildModelRequest({
     forceResponsesApi === true ||
     (forceResponsesApi !== false &&
       model.startsWith("grok-") &&
-      normalizedBaseURL.includes("api.x.ai") &&
       !baseIsChatCompletions);
 
   const includeReasoning = reasoningEffort !== "none";
@@ -220,6 +219,17 @@ export function extractResponsesApiEvents(payload: UnknownRecord) {
     const itemType = firstString(item?.type);
     if (itemType?.includes("search")) {
       events.push({ type: "tool", name: readableToolName(itemType) });
+      const citations = extractCitationsFromSearchItem(item);
+      if (citations.length > 0) {
+        events.push({ type: "citations", citations });
+      }
+    }
+  }
+
+  if (eventType === "response.output_item.done") {
+    const item = payload.item as UnknownRecord | undefined;
+    const itemType = firstString(item?.type);
+    if (itemType?.includes("search")) {
       const citations = extractCitationsFromSearchItem(item);
       if (citations.length > 0) {
         events.push({ type: "citations", citations });

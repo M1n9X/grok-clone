@@ -148,13 +148,17 @@ test("injects thinking instruction and reasoning params for low effort (auto mod
     xSearch: false,
   });
 
-  assert.equal(request.useResponsesApi, false);
-  assert.deepEqual((request.body.messages as unknown[])[0], {
+  assert.equal(request.useResponsesApi, true);
+  assert.deepEqual((request.body.input as unknown[])[0], {
     role: "system",
     content:
       "Before the final answer, provide a concise reasoning summary inside <thinking_summary>...</thinking_summary>. Summarize the approach, searches, and checks without exposing private chain-of-thought.",
   });
-  assert.equal(request.body.reasoning_effort, "low");
+  assert.deepEqual((request.body.input as unknown[])[1], {
+    role: "user",
+    content: "Hello",
+  });
+  assert.equal(request.body.reasoning?.effort, "low");
 });
 
 test("skips thinking instruction and reasoning_effort when effort is none", () => {
@@ -167,11 +171,11 @@ test("skips thinking instruction and reasoning_effort when effort is none", () =
     xSearch: false,
   });
 
-  assert.equal(request.useResponsesApi, false);
-  assert.deepEqual(request.body.messages, [
+  assert.equal(request.useResponsesApi, true);
+  assert.deepEqual(request.body.input, [
     { role: "user", content: "Hello" },
   ]);
-  assert.equal("reasoning_effort" in request.body, false);
+  assert.equal(request.body.reasoning, undefined);
 });
 
 test("skips thinking instruction and reasoning for Responses API when effort is none", () => {
