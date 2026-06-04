@@ -114,7 +114,6 @@ export default function ChatPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             messages: apiMessages,
-            sessionId,
             model,
             webSearch,
             xSearch,
@@ -291,6 +290,25 @@ export default function ChatPage() {
     [sessionId]
   );
 
+  // Save a message to the DB and return its real id (or null on failure)
+  async function saveUserMessage(content: string): Promise<string | null> {
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, role: "user", content }),
+      });
+      if (res.ok) {
+        const { id } = await res.json();
+        return id;
+      }
+      console.error("Failed to save user message:", res.status);
+    } catch (err) {
+      console.error("Failed to save user message:", err);
+    }
+    return null;
+  }
+
   async function sendMessage(
     content: string,
     model: string = "auto",
@@ -298,6 +316,9 @@ export default function ChatPage() {
     xSearch: boolean = false
   ) {
     if (!content.trim()) return;
+
+    // Capture count BEFORE adding new messages (used later to exclude assistant placeholder)
+    const originalCount = messagesRef.current.length;
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
@@ -323,20 +344,8 @@ export default function ChatPage() {
     }
 
     // Save user message to DB explicitly and get real DB id
-    let userDbId = userMessage.id;
-    try {
-      const res = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, role: "user", content }),
-      });
-      if (res.ok) {
-        const { id } = await res.json();
-        userDbId = id;
-      }
-    } catch {
-      // Best effort
-    }
+    const savedId = await saveUserMessage(content);
+    const userDbId = savedId ?? userMessage.id;
 
     // Update user message with real DB id for future edit/delete operations
     setMessages((prev) =>
@@ -354,10 +363,14 @@ export default function ChatPage() {
       messagesRef.current = [...messagesRef.current, { ...userMessage, id: userDbId }];
     }
 
-    const apiMessages = messagesRef.current.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
+    // Build apiMessages from only the messages that existed before this send,
+    // plus the new user message — exclude the assistant placeholder.
+    const apiMessages = messagesRef.current
+      .slice(0, originalCount + 1)
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
 
     await streamResponse(apiMessages, assistantId, model, webSearch, xSearch);
   }
@@ -410,25 +423,12 @@ export default function ChatPage() {
     await deleteMessagesFrom(messageId);
 
     // Save edited user message to DB (override: old one deleted, new one inserted)
-    let newMessageId = messageId;
-    try {
-      const res = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, role: "user", content: newContent }),
-      });
-      if (res.ok) {
-        const { id } = await res.json();
-        newMessageId = id;
-      }
-    } catch {
-      // Best effort
-    }
+    const savedId = await saveUserMessage(newContent);
 
     messagesRef.current[idx] = {
       ...messagesRef.current[idx]!,
       content: newContent,
-      id: newMessageId,
+      id: savedId ?? messageId,
     };
 
     if (idx === 0) {
