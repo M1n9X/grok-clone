@@ -211,14 +211,8 @@ function ChatMessage({
           )}
         </div>
       ) : (
-        <div className="flex items-start gap-3">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
-            <svg viewBox="0 0 1024 400" className="h-3.5 w-3.5" fill="currentColor">
-              <path d="M163.591 251.367L288.916 158.716C295.06 154.174 303.842 155.946 306.769 163.001C322.178 200.209 315.294 244.924 284.638 275.625C253.982 306.326 211.328 313.059 172.34 297.724L129.75 317.472C190.837 359.287 265.016 348.946 311.369 302.492C348.137 265.67 359.524 215.479 348.877 170.217L348.973 170.314C333.533 103.822 352.769 77.2447 392.174 22.898C393.107 21.6094 394.04 20.3208 394.973 19L343.119 70.9306V70.7695L163.559 251.399" />
-              <path d="M137.728 273.885C93.8835 231.941 101.443 167.028 138.854 129.594C166.518 101.889 211.842 90.5817 251.409 107.205L293.902 87.5535C286.246 82.0126 276.435 76.0528 265.176 71.8648C214.287 50.8929 153.362 61.3305 111.994 102.727C72.2025 142.577 59.6893 203.85 81.1773 256.135C97.229 295.211 70.9158 322.852 44.4097 350.75C35.0167 360.64 25.5916 370.53 18 381L137.696 273.917" />
-            </svg>
-          </div>
-          <div className="min-w-0 flex-1">
+        <div className="flex flex-col items-start">
+          <div className="w-full">
             {message.stream && (
               <ThinkingPanel
                 stream={message.stream}
@@ -239,32 +233,32 @@ function ChatMessage({
                 <span>{message.stream?.status ?? "Thinking"}</span>
               </div>
             )}
+          </div>
 
-            {/* Assistant message actions */}
-            <div className="-ml-2 mt-1 flex h-8 max-w-full items-center gap-1 overflow-x-auto opacity-100 transition-opacity md:opacity-0 md:group-hover/message:opacity-100">
-              <button
-                onClick={() => onRegenerate?.(message.id)}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </button>
-              <button
-                onClick={handleCopy}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
-              >
-                {copied ? (
-                  <Check className="h-4 w-4 text-green-500" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-              </button>
-              <button className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8">
-                <ThumbsUp className="h-4 w-4" />
-              </button>
-              <button className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8">
-                <ThumbsDown className="h-4 w-4" />
-              </button>
-            </div>
+          {/* Assistant message actions */}
+          <div className="-ml-2 mt-1 flex h-8 max-w-full items-center gap-1 overflow-x-auto opacity-100 transition-opacity md:opacity-0 md:group-hover/message:opacity-100">
+            <button
+              onClick={() => onRegenerate?.(message.id)}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+            <button
+              onClick={handleCopy}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8"
+            >
+              {copied ? (
+                <Check className="h-4 w-4 text-green-500" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+            </button>
+            <button className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8">
+              <ThumbsUp className="h-4 w-4" />
+            </button>
+            <button className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground md:h-8 md:w-8">
+              <ThumbsDown className="h-4 w-4" />
+            </button>
           </div>
         </div>
       )}
