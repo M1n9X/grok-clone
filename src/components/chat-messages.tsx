@@ -252,6 +252,8 @@ function ThinkingPanel({
       ? stream.firstTokenAt - stream.startedAt
       : undefined;
 
+  const isWaitingForFirstToken = isStreaming && firstTokenMs === undefined;
+
   useEffect(() => {
     if (!isStreaming) {
       return;
@@ -275,7 +277,16 @@ function ThinkingPanel({
         className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
       >
         <span className="flex min-w-0 items-center gap-2 text-sm text-foreground">
-          <Brain className="h-4 w-4 shrink-0 text-muted-foreground" />
+          {isWaitingForFirstToken ? (
+            <span className="relative flex h-4 w-4 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60 opacity-75" />
+              <span className="relative inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary/20">
+                <Brain className="h-3 w-3 text-primary" />
+              </span>
+            </span>
+          ) : (
+            <Brain className="h-4 w-4 shrink-0 text-muted-foreground" />
+          )}
           <span className="truncate">
             {stream.status ?? (isStreaming ? "Thinking" : "Thought process")}
           </span>
@@ -287,7 +298,7 @@ function ThinkingPanel({
             </span>
           )}
           {elapsedMs !== undefined && (
-            <span className="font-mono tabular-nums">
+            <span className={`font-mono tabular-nums ${isWaitingForFirstToken ? "text-primary" : ""}`}>
               {formatDuration(elapsedMs)}
             </span>
           )}
@@ -320,7 +331,9 @@ function ThinkingPanel({
           ) : (
             <div className="text-xs text-muted-foreground">
               {isStreaming
-                ? "Waiting for reasoning summary or first token..."
+                ? isWaitingForFirstToken
+                  ? "Model is analyzing your question... Complex queries may take 20-30 seconds."
+                  : "Generating response..."
                 : hasReasoningUsage
                   ? "Reasoning tokens were used, but this provider did not stream a reasoning summary."
                   : "No reasoning summary was returned for this response."}
