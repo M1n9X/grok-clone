@@ -69,6 +69,11 @@ export function buildModelRequest({
       normalizedBaseURL.includes("api.x.ai") &&
       !baseIsChatCompletions);
 
+  const includeReasoning = reasoningEffort !== "none";
+  const processedMessages = includeReasoning
+    ? withThinkingSummaryInstruction(messages)
+    : messages;
+
   if (useResponsesApi) {
     const tools = [
       ...(webSearch ? [{ type: "web_search" }] : []),
@@ -80,9 +85,11 @@ export function buildModelRequest({
       useResponsesApi: true,
       body: {
         model,
-        input: withThinkingSummaryInstruction(messages),
+        input: processedMessages,
         stream: true,
-        reasoning: { effort: reasoningEffort },
+        ...(includeReasoning
+          ? { reasoning: { effort: reasoningEffort } }
+          : {}),
         store: false,
         ...(tools.length > 0 ? { tools } : {}),
       },
@@ -97,9 +104,9 @@ export function buildModelRequest({
     useResponsesApi: false,
     body: {
       model,
-      messages: withThinkingSummaryInstruction(messages),
+      messages: processedMessages,
       stream: true,
-      reasoning_effort: reasoningEffort,
+      ...(includeReasoning ? { reasoning_effort: reasoningEffort } : {}),
       ...(tools.length > 0 ? { tools } : {}),
     },
   };

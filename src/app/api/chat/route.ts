@@ -11,19 +11,26 @@ export const maxDuration = 60;
 
 const MODEL_CONFIG: Record<
   string,
-  { model: string; reasoningEffort: "none" | "low" | "medium" | "high" }
+  {
+    model: string;
+    reasoningEffort: "none" | "low" | "medium" | "high";
+    statusLabel: string;
+  }
 > = {
   fast: {
     model: process.env.OPENAI_MODEL_FAST ?? "grok-4.3",
     reasoningEffort: "none",
+    statusLabel: "Starting fast response",
   },
   auto: {
     model: process.env.OPENAI_MODEL_AUTO ?? "grok-4.3",
     reasoningEffort: "low",
+    statusLabel: "Thinking",
   },
   expert: {
     model: process.env.OPENAI_MODEL_EXPERT ?? "grok-4.3",
     reasoningEffort: "high",
+    statusLabel: "Thinking",
   },
 };
 
@@ -50,6 +57,7 @@ export async function POST(req: Request) {
       ? model
       : selectedConfig.model;
   const reasoningEffort = selectedConfig.reasoningEffort;
+  const statusLabel = selectedConfig.statusLabel;
   const baseURL = (
     process.env.OPENAI_API_BASE_URL ?? "https://api.x.ai/v1"
   ).replace(/\/$/, "");
@@ -104,13 +112,7 @@ export async function POST(req: Request) {
           });
         }
 
-        send({
-          type: "status",
-          label:
-            reasoningEffort === "none"
-              ? "Starting fast response"
-              : "Thinking",
-        });
+        send({ type: "status", label: statusLabel });
 
         upstreamAbort = new AbortController();
         const modelRequest = buildModelRequest({
@@ -149,7 +151,12 @@ export async function POST(req: Request) {
           return;
         }
 
-        await pipeSseEvents(apiRes.body, modelRequest.useResponsesApi, send);
+        await pipeSseEvents(
+          apiRes.body,
+          modelRequest.useResponsesApi,
+          reasoningEffort,
+          send,
+        );
         send({ type: "done" });
         close();
       } catch (err) {
@@ -182,6 +189,7 @@ export async function POST(req: Request) {
 async function pipeSseEvents(
   body: ReadableStream<Uint8Array>,
   useResponsesApi: boolean,
+  reasoningEffort: string,
   send: (event: ChatStreamEvent) => void
 ) {
   const reader = body.getReader();
@@ -208,7 +216,10 @@ async function pipeSseEvents(
         const events = useResponsesApi
           ? extractResponsesApiEvents(json)
           : extractChatCompletionEvents(json);
-        for (const event of events) send(event);
+        for (const event of events) {
+          if (reasoningEffort === "none" && event.type === "thinking") continue;
+          send(event);
+        }
       } catch {
         // Ignore comments and malformed upstream lines.
       }

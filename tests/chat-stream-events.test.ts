@@ -135,6 +135,60 @@ test("adds a tagged thinking summary instruction to model messages", () => {
     content:
       "Before the final answer, provide a concise reasoning summary inside <thinking_summary>...</thinking_summary>. Summarize the approach, searches, and checks without exposing private chain-of-thought.",
   });
+  assert.equal(request.body.reasoning_effort, "high");
+});
+
+test("injects thinking instruction and reasoning params for low effort (auto mode)", () => {
+  const request = buildModelRequest({
+    baseURL: "https://jiuuij.de5.net/v1",
+    model: "grok-4.20-multi-agent-medium",
+    messages: [{ role: "user", content: "Hello" }],
+    reasoningEffort: "low",
+    webSearch: false,
+    xSearch: false,
+  });
+
+  assert.equal(request.useResponsesApi, false);
+  assert.deepEqual((request.body.messages as unknown[])[0], {
+    role: "system",
+    content:
+      "Before the final answer, provide a concise reasoning summary inside <thinking_summary>...</thinking_summary>. Summarize the approach, searches, and checks without exposing private chain-of-thought.",
+  });
+  assert.equal(request.body.reasoning_effort, "low");
+});
+
+test("skips thinking instruction and reasoning_effort when effort is none", () => {
+  const request = buildModelRequest({
+    baseURL: "https://jiuuij.de5.net/v1",
+    model: "grok-4.3-medium",
+    messages: [{ role: "user", content: "Hello" }],
+    reasoningEffort: "none",
+    webSearch: false,
+    xSearch: false,
+  });
+
+  assert.equal(request.useResponsesApi, false);
+  assert.deepEqual(request.body.messages, [
+    { role: "user", content: "Hello" },
+  ]);
+  assert.equal("reasoning_effort" in request.body, false);
+});
+
+test("skips thinking instruction and reasoning for Responses API when effort is none", () => {
+  const request = buildModelRequest({
+    baseURL: "https://api.x.ai/v1",
+    model: "grok-4.3",
+    messages: [{ role: "user", content: "Hello" }],
+    reasoningEffort: "none",
+    webSearch: false,
+    xSearch: false,
+  });
+
+  assert.equal(request.useResponsesApi, true);
+  assert.deepEqual(request.body.input, [
+    { role: "user", content: "Hello" },
+  ]);
+  assert.equal("reasoning" in request.body, false);
 });
 
 test("parses tagged thinking summary out of streamed answer text", () => {
