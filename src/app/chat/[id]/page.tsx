@@ -317,12 +317,28 @@ export default function ChatPage() {
     await streamResponse(apiMessages, assistantId, "auto", false, false);
   }
 
+  // Delete a message and all subsequent messages in the session from DB
+  async function deleteMessagesFrom(messageId: string) {
+    try {
+      await fetch("/api/messages", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId }),
+      });
+    } catch (err) {
+      console.error("Failed to delete messages:", err);
+    }
+  }
+
   // Edit user message: replace content, discard subsequent messages, re-generate
   async function handleEditMessage(messageId: string, newContent: string) {
     if (!newContent.trim()) return;
 
     const idx = messagesRef.current.findIndex((m) => m.id === messageId);
     if (idx === -1) return;
+
+    // Remove old messages from DB before inserting new ones
+    await deleteMessagesFrom(messageId);
 
     messagesRef.current[idx] = {
       ...messagesRef.current[idx]!,
@@ -345,6 +361,11 @@ export default function ChatPage() {
 
     for (let i = idx - 1; i >= 0; i--) {
       if (messagesRef.current[i]!.role === "user") {
+        // Remove old assistant response (and anything after) from DB
+        const firstDiscarded = messagesRef.current[i + 1];
+        if (firstDiscarded) {
+          await deleteMessagesFrom(firstDiscarded.id);
+        }
         await regenerateFrom(i);
         return;
       }
