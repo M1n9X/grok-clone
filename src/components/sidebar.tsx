@@ -259,7 +259,7 @@ export function Sidebar({
         </div>
         <button
           onClick={handleNewChat}
-          className="flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+          className="flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-sm text-sidebar-foreground/80 transition-colors hover:bg-sidebar-hover hover:text-sidebar-foreground"
         >
           <Plus className="h-4 w-4" />
           New Chat
@@ -302,7 +302,7 @@ export function Sidebar({
             (group) =>
               group.items.length > 0 && (
                 <div key={group.label} className="mb-2">
-                  <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                  <div className="px-3 py-1.5 text-xs font-medium text-sidebar-foreground/50">
                     {group.label}
                   </div>
                   {group.items.map((session) => {
@@ -321,11 +321,11 @@ export function Sidebar({
                         className={clsx(
                           "group relative flex cursor-pointer items-center rounded-lg px-3 py-2 text-sm transition-colors",
                           isActive
-                            ? "bg-sidebar-active text-foreground"
-                            : "text-muted-foreground hover:bg-sidebar-hover hover:text-foreground"
+                            ? "bg-sidebar-active text-sidebar-foreground"
+                            : "text-sidebar-foreground/80 hover:bg-sidebar-hover hover:text-sidebar-foreground"
                         )}
                       >
-                        <MessageSquare className="mr-2.5 h-4 w-4 shrink-0 opacity-50" />
+                        <MessageSquare className="mr-2.5 h-4 w-4 shrink-0 opacity-70" />
 
                         {isEditing ? (
                           <div className="flex min-w-0 flex-1 items-center gap-1">
@@ -392,7 +392,7 @@ export function Sidebar({
       <div className="border-t border-border p-2 safe-bottom">
         <button
           onClick={handleLogout}
-          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-hover hover:text-sidebar-foreground"
         >
           <LogOut className="h-4 w-4" />
           Sign Out
