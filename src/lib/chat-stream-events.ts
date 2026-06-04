@@ -353,7 +353,14 @@ function omitUndefined(record: UnknownRecord) {
 function extractCitationsFromSearchItem(item: UnknownRecord | undefined): Citation[] {
   if (!item) return [];
 
-  const results = item.results ?? item.search_results ?? item.entries ?? item.sources;
+  const results =
+    item.results ??
+    item.search_results ??
+    item.entries ??
+    item.sources ??
+    item.references ??
+    item.web_results ??
+    item.citations;
   if (!Array.isArray(results)) return [];
 
   const citations: Citation[] = [];
@@ -386,8 +393,7 @@ export function extractCitationsFromText(text: string): Citation[] {
   const citations: Citation[] = [];
   const seen = new Set<string>();
 
-  // Matches [[n]](url) (double-bracket) and [n](url) / [text](url) (single-bracket).
-  // Capture groups: [1] = inner text of [[...]], [2] = text of [...], [3] = URL
+  // 1. Inline links: [[n]](url) (double-bracket) and [n](url) / [text](url)
   const pattern = /\[(?:\[([^\]]+)\]|([^\]]+))\]\((https?:\/\/[^\s)]+)\)/g;
   let match;
 
@@ -423,6 +429,25 @@ export function extractCitationsFromText(text: string): Citation[] {
       domain: extractDomain(url),
       description: descriptionMatch?.[1]?.trim(),
     });
+  }
+
+  // 2. Footnote-style references: lines like "[1] https://..." or "1. https://..."
+  if (citations.length === 0) {
+    const footnotePattern =
+      /^(?:\[(\d+)\]|(\d+)[.):])\s*(https?:\/\/[^\s]+)(?:[ \t]+(.+))?$/gm;
+    let fnMatch;
+    while ((fnMatch = footnotePattern.exec(text)) !== null) {
+      const idx = Number(fnMatch[1] ?? fnMatch[2]);
+      const url = fnMatch[3]!;
+      if (seen.has(url)) continue;
+      seen.add(url);
+      citations.push({
+        index: idx,
+        url,
+        title: fnMatch[4]?.trim() || extractDomain(url),
+        domain: extractDomain(url),
+      });
+    }
   }
 
   return citations;

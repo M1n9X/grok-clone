@@ -252,3 +252,18 @@ test("extracts citations from descriptive [text](url) links", () => {
   assert.equal(citations[0].title, "React docs");
   assert.equal(citations[0].domain, "react.dev");
 });
+
+test("extracts footnote-style citations when no inline links exist", () => {
+  const text = `SpaceX launched a new rocket [1] and TSMC raised guidance [2].
+
+[1] https://www.reuters.com/space/spacex-launch
+[2] https://www.cnbc.com/tsmc-guidance TSMC Q2 outlook`;
+
+  const citations = extractCitationsFromText(text);
+  assert.equal(citations.length, 2);
+  assert.equal(citations[0].index, 1);
+  assert.equal(citations[0].url, "https://www.reuters.com/space/spacex-launch");
+  assert.equal(citations[0].domain, "reuters.com");
+  assert.equal(citations[1].index, 2);
+  assert.equal(citations[1].title, "TSMC Q2 outlook");
+});

@@ -194,6 +194,18 @@ function extractText(children: ReactNode): string {
   return "";
 }
 
+function injectCitationLinks(text: string, citations: Citation[]): string {
+  if (citations.length === 0) return text;
+  const byIndex = new Map(citations.map((c) => [c.index, c]));
+  return text.replace(
+    /(?<!\[)(?<!\w)\[(\d+)\](?!\()/g,
+    (match, num) => {
+      const c = byIndex.get(Number(num));
+      return c ? `[${num}](${c.url})` : match;
+    }
+  );
+}
+
 const MarkdownRenderer = memo(function MarkdownRenderer({
   children,
   citations,
@@ -201,6 +213,13 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
   children: string;
   citations?: Citation[];
 }) {
+  const hasCitations = citations != null && citations.length > 0;
+
+  const processed = useMemo(
+    () => (hasCitations ? injectCitationLinks(children, citations!) : children),
+    [children, hasCitations, citations]
+  );
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const components = useMemo((): any => {
     return {
@@ -243,7 +262,7 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
 
   return (
     <ReactMarkdownLazy components={components}>
-      {children}
+      {processed}
     </ReactMarkdownLazy>
   );
 });
