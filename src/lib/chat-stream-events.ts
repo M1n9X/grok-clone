@@ -386,16 +386,16 @@ export function extractCitationsFromText(text: string): Citation[] {
   const citations: Citation[] = [];
   const seen = new Set<string>();
 
-  const pattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+  const pattern = /\[(?:\[([^\]]+)\]|([^\]]+))\]\((https?:\/\/[^\s)]+)\)/g;
   let match;
 
   while ((match = pattern.exec(text)) !== null) {
-    const url = match[2];
+    const url = match[3];
     if (!url || seen.has(url)) continue;
     seen.add(url);
 
-    const linkText = match[1]!;
-    const isCitationStyle = /^(\[\d+\]|\d+)$/.test(linkText);
+    const linkText = match[1] ?? match[2] ?? "";
+    const isCitationStyle = /^\d+$/.test(linkText);
 
     let title: string;
     if (isCitationStyle) {

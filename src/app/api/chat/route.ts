@@ -44,8 +44,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const userId = user.id;
-  const { messages, sessionId, model, webSearch, xSearch } = await req.json();
+  const { messages, model, webSearch, xSearch } = await req.json();
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return Response.json({ error: "Invalid messages" }, { status: 400 });
@@ -97,20 +96,6 @@ export async function POST(req: Request) {
 
       try {
         send({ type: "status", label: "Preparing response" });
-
-        // Save user message inside the stream so the browser receives status
-        // immediately instead of waiting behind database and model latency.
-        const lastUserMessage = typedMessages
-          .filter((m: { role: string }) => m.role === "user")
-          .pop();
-        if (lastUserMessage && sessionId) {
-          await supabase.from("chat_messages").insert({
-            session_id: sessionId,
-            user_id: userId,
-            role: "user",
-            content: lastUserMessage.content,
-          });
-        }
 
         send({ type: "status", label: statusLabel });
 

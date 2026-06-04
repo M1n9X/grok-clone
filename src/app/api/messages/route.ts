@@ -20,18 +20,22 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid role" }, { status: 400 });
   }
 
-  const { error } = await supabase.from("chat_messages").insert({
-    session_id: sessionId,
-    user_id: user.id,
-    role,
-    content,
-  });
+  const { data, error } = await supabase
+    .from("chat_messages")
+    .insert({
+      session_id: sessionId,
+      user_id: user.id,
+      role,
+      content,
+    })
+    .select("id")
+    .single();
 
   if (error) {
     return Response.json({ error: error.message }, { status: 500 });
   }
 
-  return Response.json({ success: true });
+  return Response.json({ success: true, id: data.id });
 }
 
 export async function DELETE(req: Request) {

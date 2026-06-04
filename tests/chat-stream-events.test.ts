@@ -6,6 +6,7 @@ import {
   decodeStreamEventLine,
   encodeStreamEvent,
   extractChatCompletionEvents,
+  extractCitationsFromText,
   extractResponsesApiEvents,
   parseTaggedThinkingSummary,
 } from "../src/lib/chat-stream-events.ts";
@@ -217,4 +218,37 @@ test("parses tagged thinking summary out of streamed answer text", () => {
       open: true,
     }
   );
+});
+
+test("extracts citations from [[n]](url) double-bracket format", () => {
+  const text = `SpaceX IPO定价135美元。[[1]](https://www.reuters.com/technology/)
+
+DeepSeek融资77亿美元。[[2]](https://www.youtube.com/watch?v=abc)
+
+TSMC乐观。[[1]](https://www.reuters.com/technology/)`;
+
+  const citations = extractCitationsFromText(text);
+  assert.equal(citations.length, 2, "should deduplicate by URL");
+  assert.equal(citations[0].url, "https://www.reuters.com/technology/");
+  assert.equal(citations[0].domain, "reuters.com");
+  assert.equal(citations[0].index, 1);
+  assert.equal(citations[1].url, "https://www.youtube.com/watch?v=abc");
+  assert.equal(citations[1].domain, "youtube.com");
+  assert.equal(citations[1].index, 2);
+});
+
+test("extracts citations from [n](url) single-bracket format", () => {
+  const text = `Some info. [1](https://example.com) and [2](https://other.com).`;
+  const citations = extractCitationsFromText(text);
+  assert.equal(citations.length, 2);
+  assert.equal(citations[0].domain, "example.com");
+  assert.equal(citations[1].domain, "other.com");
+});
+
+test("extracts citations from descriptive [text](url) links", () => {
+  const text = `Check out [React docs](https://react.dev) for more info.`;
+  const citations = extractCitationsFromText(text);
+  assert.equal(citations.length, 1);
+  assert.equal(citations[0].title, "React docs");
+  assert.equal(citations[0].domain, "react.dev");
 });

@@ -322,7 +322,39 @@ export default function ChatPage() {
       updateSessionTitle(title);
     }
 
-    const apiMessages = [...messagesRef.current, userMessage].map((m) => ({
+    // Save user message to DB explicitly and get real DB id
+    let userDbId = userMessage.id;
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, role: "user", content }),
+      });
+      if (res.ok) {
+        const { id } = await res.json();
+        userDbId = id;
+      }
+    } catch {
+      // Best effort
+    }
+
+    // Update user message with real DB id for future edit/delete operations
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === userMessage.id ? { ...m, id: userDbId } : m
+      )
+    );
+    const idx = messagesRef.current.findIndex(
+      (m) => m.id === userMessage.id
+    );
+    if (idx !== -1) {
+      messagesRef.current[idx]!.id = userDbId;
+    } else {
+      // First message on fresh page: ref hasn't synced yet, add manually
+      messagesRef.current = [...messagesRef.current, { ...userMessage, id: userDbId }];
+    }
+
+    const apiMessages = messagesRef.current.map((m) => ({
       role: m.role,
       content: m.content,
     }));
@@ -374,12 +406,29 @@ export default function ChatPage() {
     const idx = messagesRef.current.findIndex((m) => m.id === messageId);
     if (idx === -1) return;
 
-    // Remove old messages from DB before inserting new ones
+    // Remove old messages (including the old user message) from DB
     await deleteMessagesFrom(messageId);
+
+    // Save edited user message to DB (override: old one deleted, new one inserted)
+    let newMessageId = messageId;
+    try {
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, role: "user", content: newContent }),
+      });
+      if (res.ok) {
+        const { id } = await res.json();
+        newMessageId = id;
+      }
+    } catch {
+      // Best effort
+    }
 
     messagesRef.current[idx] = {
       ...messagesRef.current[idx]!,
       content: newContent,
+      id: newMessageId,
     };
 
     if (idx === 0) {
