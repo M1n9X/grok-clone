@@ -285,19 +285,9 @@ export default function ChatPage() {
     await streamResponse(apiMessages, assistantId, model, webSearch, xSearch);
   }
 
-  // Edit user message: replace content, discard subsequent messages, re-generate
-  async function handleEditMessage(messageId: string, newContent: string) {
-    if (!newContent.trim()) return;
-
-    const idx = messagesRef.current.findIndex((m) => m.id === messageId);
-    if (idx === -1) return;
-
-    // Keep messages up to and including the edited one, discard the rest
-    const keptMessages = messagesRef.current.slice(0, idx);
-    const editedUserMessage: Message = {
-      ...messagesRef.current[idx]!,
-      content: newContent,
-    };
+  // Discard messages after userIdx, append a new assistant placeholder, and stream a response
+  async function regenerateFrom(userIdx: number) {
+    const contextMessages = messagesRef.current.slice(0, userIdx + 1);
 
     const assistantId = `assistant-${Date.now()}`;
     const assistantMessage: Message = {
@@ -307,23 +297,50 @@ export default function ChatPage() {
       stream: createInitialStreamState(false, false),
     };
 
-    const newMessages = [...keptMessages, editedUserMessage, assistantMessage];
+    const newMessages = [...contextMessages, assistantMessage];
     setMessages(newMessages);
     messagesRef.current = newMessages;
 
-    // Update title if this is the first message
+    const apiMessages = contextMessages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    await streamResponse(apiMessages, assistantId, "auto", false, false);
+  }
+
+  // Edit user message: replace content, discard subsequent messages, re-generate
+  async function handleEditMessage(messageId: string, newContent: string) {
+    if (!newContent.trim()) return;
+
+    const idx = messagesRef.current.findIndex((m) => m.id === messageId);
+    if (idx === -1) return;
+
+    messagesRef.current[idx] = {
+      ...messagesRef.current[idx]!,
+      content: newContent,
+    };
+
     if (idx === 0) {
       const title =
         newContent.length > 50 ? newContent.slice(0, 50) + "..." : newContent;
       updateSessionTitle(title);
     }
 
-    const apiMessages = [...keptMessages, editedUserMessage].map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
+    await regenerateFrom(idx);
+  }
 
-    await streamResponse(apiMessages, assistantId, "auto", false, false);
+  // Regenerate: re-run the assistant response using the same conversation context
+  async function handleRegenerate(messageId: string) {
+    const idx = messagesRef.current.findIndex((m) => m.id === messageId);
+    if (idx === -1) return;
+
+    for (let i = idx - 1; i >= 0; i--) {
+      if (messagesRef.current[i]!.role === "user") {
+        await regenerateFrom(i);
+        return;
+      }
+    }
   }
 
   // Load existing messages on mount
@@ -425,6 +442,7 @@ export default function ChatPage() {
               messages={messages}
               isStreaming={isLoading}
               onEdit={handleEditMessage}
+              onRegenerate={handleRegenerate}
             />
             <div className="shrink-0 pb-3">
               <ChatInput
