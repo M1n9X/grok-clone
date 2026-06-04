@@ -58,6 +58,7 @@
 
 html {
   height: 100dvh;
+  font-size: 106.25%;
 }
 
 html.dark {
