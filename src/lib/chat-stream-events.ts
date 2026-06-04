@@ -386,6 +386,8 @@ export function extractCitationsFromText(text: string): Citation[] {
   const citations: Citation[] = [];
   const seen = new Set<string>();
 
+  // Matches [[n]](url) (double-bracket) and [n](url) / [text](url) (single-bracket).
+  // Capture groups: [1] = inner text of [[...]], [2] = text of [...], [3] = URL
   const pattern = /\[(?:\[([^\]]+)\]|([^\]]+))\]\((https?:\/\/[^\s)]+)\)/g;
   let match;
 

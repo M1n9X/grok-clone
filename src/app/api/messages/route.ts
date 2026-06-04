@@ -20,6 +20,18 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid role" }, { status: 400 });
   }
 
+  // Verify session ownership to prevent IDOR
+  const { data: session } = await supabase
+    .from("chat_sessions")
+    .select("id")
+    .eq("id", sessionId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!session) {
+    return Response.json({ error: "Session not found" }, { status: 404 });
+  }
+
   const { data, error } = await supabase
     .from("chat_messages")
     .insert({

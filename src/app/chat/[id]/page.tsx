@@ -273,17 +273,33 @@ export default function ChatPage() {
 
         // Save assistant message after stream completes
         if (fullContent.trim()) {
-          fetch("/api/messages", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              sessionId,
-              role: "assistant",
-              content: fullContent,
-            }),
-          }).catch((err) => {
-            console.error("Failed to save assistant message:", err);
-          });
+          try {
+            const saveRes = await fetch("/api/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sessionId,
+                role: "assistant",
+                content: fullContent,
+              }),
+            });
+            if (saveRes.ok) {
+              const { id: dbId } = await saveRes.json();
+              const idx = messagesRef.current.findIndex(
+                (m) => m.id === assistantId
+              );
+              if (idx !== -1) messagesRef.current[idx]!.id = dbId;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId ? { ...m, id: dbId } : m
+                )
+              );
+            } else {
+              console.error("Failed to save assistant message:", saveRes.status);
+            }
+          } catch (saveErr) {
+            console.error("Failed to save assistant message:", saveErr);
+          }
         }
       }
     },
@@ -316,9 +332,8 @@ export default function ChatPage() {
     xSearch: boolean = false
   ) {
     if (!content.trim()) return;
-
-    // Capture count BEFORE adding new messages (used later to exclude assistant placeholder)
-    const originalCount = messagesRef.current.length;
+    setIsLoading(true);
+    const historyCount = messagesRef.current.length;
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
@@ -363,14 +378,14 @@ export default function ChatPage() {
       messagesRef.current = [...messagesRef.current, { ...userMessage, id: userDbId }];
     }
 
-    // Build apiMessages from only the messages that existed before this send,
-    // plus the new user message — exclude the assistant placeholder.
-    const apiMessages = messagesRef.current
-      .slice(0, originalCount + 1)
-      .map((m) => ({
+    // Build apiMessages: history + new user message, exclude assistant placeholder
+    const apiMessages = [
+      ...messagesRef.current.slice(0, historyCount).map((m) => ({
         role: m.role,
         content: m.content,
-      }));
+      })),
+      { role: "user" as const, content },
+    ];
 
     await streamResponse(apiMessages, assistantId, model, webSearch, xSearch);
   }
@@ -402,11 +417,14 @@ export default function ChatPage() {
   // Delete a message and all subsequent messages in the session from DB
   async function deleteMessagesFrom(messageId: string) {
     try {
-      await fetch("/api/messages", {
+      const res = await fetch("/api/messages", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messageId }),
       });
+      if (!res.ok) {
+        console.error("Failed to delete messages:", res.status);
+      }
     } catch (err) {
       console.error("Failed to delete messages:", err);
     }
@@ -419,11 +437,15 @@ export default function ChatPage() {
     const idx = messagesRef.current.findIndex((m) => m.id === messageId);
     if (idx === -1) return;
 
-    // Remove old messages (including the old user message) from DB
+    // Delete old messages first, then save the edited one.
+    // NOTE: save-before-delete is unsafe because the range DELETE
+    // (created_at >= target) would remove the just-inserted row.
     await deleteMessagesFrom(messageId);
 
-    // Save edited user message to DB (override: old one deleted, new one inserted)
     const savedId = await saveUserMessage(newContent);
+    if (!savedId) {
+      console.error("Edit warning: old messages deleted but new message failed to save");
+    }
 
     messagesRef.current[idx] = {
       ...messagesRef.current[idx]!,
