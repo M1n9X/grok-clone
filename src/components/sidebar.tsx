@@ -13,6 +13,7 @@ import {
   Pencil,
   Check,
   X,
+  Search,
 } from "lucide-react";
 import type { ChatSession } from "@/lib/types";
 import { clsx } from "clsx";
@@ -35,6 +36,7 @@ export function Sidebar({
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
   const pathname = usePathname();
   const supabase = useMemo(() => createClient(), []);
@@ -182,7 +184,13 @@ export function Sidebar({
     { label: "Older", items: [] },
   ];
 
-  for (const session of sessions) {
+  const filteredSessions = searchQuery
+    ? sessions.filter((s) =>
+        s.title.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : sessions;
+
+  for (const session of filteredSessions) {
     const d = new Date(session.updated_at);
     if (d >= today) groups[0]!.items.push(session);
     else if (d >= yesterday) groups[1]!.items.push(session);
@@ -257,6 +265,28 @@ export function Sidebar({
           New Chat
         </button>
       </div>
+
+      {sessions.length > 0 && (
+        <div className="px-2 pb-1">
+          <div className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-1.5">
+            <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search conversations..."
+              className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {loading ? (

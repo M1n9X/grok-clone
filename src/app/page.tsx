@@ -7,6 +7,9 @@ import { Sidebar } from "@/components/sidebar";
 import { ChatInput } from "@/components/chat-input";
 import { GrokLogo } from "@/components/grok-logo";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { PromptSuggestions } from "@/components/prompt-suggestions";
+import { TopBar } from "@/components/top-bar";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
 export default function HomePage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -14,6 +17,10 @@ export default function HomePage() {
   const [sendingMessage, setSendingMessage] = useState<string | null>(null);
   const router = useRouter();
   const closeMobileSidebar = useCallback(() => setMobileSidebarOpen(false), []);
+
+  useKeyboardShortcuts({
+    onNewChat: () => router.push("/"),
+  });
 
   async function handleSend(
     content: string,
@@ -58,6 +65,7 @@ export default function HomePage() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <TopBar onNewChat={() => router.push("/")} />
         <header className="flex h-14 shrink-0 items-center justify-between px-3 pt-[env(safe-area-inset-top)] md:hidden">
           <button
             type="button"
@@ -105,6 +113,8 @@ export default function HomePage() {
             <p className="mt-3 px-4 text-center text-xs text-muted-foreground">
               Grok can make mistakes. Verify important information.
             </p>
+
+            <PromptSuggestions onSelect={(text) => handleSend(text)} />
           </div>
         )}
       </main>

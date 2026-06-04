@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { PanelLeft } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
 import { ChatInput } from "@/components/chat-input";
@@ -15,6 +15,9 @@ import {
   parseTaggedThinkingSummary,
 } from "@/lib/chat-stream-events";
 import { GrokLogo } from "@/components/grok-logo";
+import { PromptSuggestions } from "@/components/prompt-suggestions";
+import { TopBar } from "@/components/top-bar";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
 export default function ChatPage() {
   const params = useParams();
@@ -28,6 +31,11 @@ export default function ChatPage() {
   const initializedRef = useRef(false);
   const messagesRef = useRef<Message[]>([]);
   const closeMobileSidebar = useCallback(() => setMobileSidebarOpen(false), []);
+  const router = useRouter();
+
+  useKeyboardShortcuts({
+    onNewChat: () => router.push("/"),
+  });
 
   // Keep ref in sync
   useEffect(() => {
@@ -411,6 +419,7 @@ export default function ChatPage() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <TopBar onNewChat={() => router.push("/")} />
         <header className="flex h-14 shrink-0 items-center justify-between px-3 pt-[env(safe-area-inset-top)] md:hidden">
           <button
             type="button"
@@ -435,6 +444,7 @@ export default function ChatPage() {
             <p className="mt-3 px-4 text-center text-xs text-muted-foreground">
               Grok can make mistakes. Verify important information.
             </p>
+            <PromptSuggestions onSelect={(text) => sendMessage(text)} />
           </div>
         ) : (
           <>

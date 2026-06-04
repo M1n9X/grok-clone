@@ -57,8 +57,15 @@
 }
 
 html {
-  color-scheme: dark;
   height: 100dvh;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html:not(.dark) {
+  color-scheme: light;
 }
 
 body {
@@ -232,4 +239,25 @@ body.sidebar-open {
 .prose-chat th {
   background: var(--muted);
   font-weight: 600;
+}
+
+/* Toast animations */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-in-from-bottom {
+  from { transform: translateY(0.5rem); }
+  to { transform: translateY(0); }
+}
+
+.animate-in {
+  animation: fade-in 0.2s ease-out, slide-in-from-bottom 0.2s ease-out;
+}
+
+/* Light mode code block overrides */
+html:not(.dark) .prose-chat pre {
+  background: #282c34;
+  border-color: #e5e5e5;
 }
