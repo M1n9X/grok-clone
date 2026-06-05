@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useState, useCallback, useMemo, memo, type ReactNode } from "react";
 import { Copy, Check, ExternalLink } from "lucide-react";
-import { type Citation, extractDomain } from "@/lib/chat-stream-events";
+import { type Citation, extractDomain, injectCitationLinks } from "@/lib/chat-stream-events";
 
 const ReactMarkdownLazy = dynamic(
   async () => {
@@ -194,18 +194,6 @@ function extractText(children: ReactNode): string {
   return "";
 }
 
-function injectCitationLinks(text: string, citations: Citation[]): string {
-  if (citations.length === 0) return text;
-  const byIndex = new Map(citations.map((c) => [c.index, c]));
-  return text.replace(
-    /(?<!\[)(?<!\w)\[(\d+)\](?!\()/g,
-    (match, num) => {
-      const c = byIndex.get(Number(num));
-      return c ? `[${num}](${c.url})` : match;
-    }
-  );
-}
-
 const MarkdownRenderer = memo(function MarkdownRenderer({
   children,
   citations,
@@ -246,8 +234,8 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
         const text = extractText(children).trim();
         const isCitation = /^\[?\d+\]?$/.test(text);
 
-        if (isCitation && citations && citations.length > 0) {
-          const citation = citations.find((c: Citation) => c.url === href);
+        if (isCitation) {
+          const citation = citations?.find((c: Citation) => c.url === href);
           return <CitationLink href={href} citation={citation} />;
         }
 

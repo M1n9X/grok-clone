@@ -8,6 +8,7 @@ import {
   extractChatCompletionEvents,
   extractCitationsFromText,
   extractResponsesApiEvents,
+  injectCitationLinks,
   parseTaggedThinkingSummary,
 } from "../src/lib/chat-stream-events.ts";
 
@@ -266,4 +267,41 @@ test("extracts footnote-style citations when no inline links exist", () => {
   assert.equal(citations[0].domain, "reuters.com");
   assert.equal(citations[1].index, 2);
   assert.equal(citations[1].title, "TSMC Q2 outlook");
+});
+
+test("injectCitationLinks replaces plain [n] with markdown links", () => {
+  const text = "SpaceX IPO定价135美元 [1]，DeepSeek融资 [2]。";
+  const citations = [
+    { index: 1, url: "https://reuters.com/spacex", title: "Reuters", domain: "reuters.com" },
+    { index: 2, url: "https://cnbc.com/deepseek", title: "CNBC", domain: "cnbc.com" },
+  ];
+  const result = injectCitationLinks(text, citations);
+  assert.equal(result, "SpaceX IPO定价135美元 [1](https://reuters.com/spacex)，DeepSeek融资 [2](https://cnbc.com/deepseek)。");
+});
+
+test("injectCitationLinks leaves already-linked [n](url) unchanged", () => {
+  const text = "Info [1](https://example.com) and plain text.";
+  const citations = [
+    { index: 1, url: "https://example.com", title: "Example", domain: "example.com" },
+  ];
+  const result = injectCitationLinks(text, citations);
+  assert.equal(result, text);
+});
+
+test("injectCitationLinks with empty citations returns text unchanged", () => {
+  const text = "No citations [1] here.";
+  assert.equal(injectCitationLinks(text, []), text);
+});
+
+test("round-trip: injectCitationLinks then extractCitationsFromText recovers citations", () => {
+  const text = "Rocket launched [1] and chip guidance raised [2].";
+  const citations = [
+    { index: 1, url: "https://reuters.com/space", title: "Reuters", domain: "reuters.com" },
+    { index: 2, url: "https://cnbc.com/tsmc", title: "CNBC", domain: "cnbc.com" },
+  ];
+  const injected = injectCitationLinks(text, citations);
+  const recovered = extractCitationsFromText(injected);
+  assert.equal(recovered.length, 2);
+  assert.equal(recovered[0].url, "https://reuters.com/space");
+  assert.equal(recovered[1].url, "https://cnbc.com/tsmc");
 });

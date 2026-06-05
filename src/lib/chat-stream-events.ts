@@ -389,6 +389,18 @@ export function extractDomain(url: string): string {
   }
 }
 
+export function injectCitationLinks(text: string, citations: Citation[]): string {
+  if (citations.length === 0) return text;
+  const byIndex = new Map(citations.map((c) => [c.index, c]));
+  return text.replace(
+    /(?<!\[)(?<!\w)\[(\d+)\](?!\()/g,
+    (match, num) => {
+      const c = byIndex.get(Number(num));
+      return c ? `[${num}](${c.url})` : match;
+    }
+  );
+}
+
 export function extractCitationsFromText(text: string): Citation[] {
   const citations: Citation[] = [];
   const seen = new Set<string>();

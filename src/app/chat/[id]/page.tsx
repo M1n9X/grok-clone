@@ -14,6 +14,7 @@ import {
   decodeStreamEventLine,
   parseTaggedThinkingSummary,
   extractCitationsFromText,
+  injectCitationLinks,
   type Citation,
 } from "@/lib/chat-stream-events";
 import { GrokLogo } from "@/components/grok-logo";
@@ -268,6 +269,8 @@ export default function ChatPage() {
           }
         }
 
+        const persistContent = injectCitationLinks(fullContent, finalCitations);
+
         streamState.citations = finalCitations;
         streamState.status = fullContent.trim()
           ? "Complete"
@@ -279,7 +282,7 @@ export default function ChatPage() {
             m.id === assistantId
               ? {
                   ...m,
-                  content: fullContent,
+                  content: persistContent,
                   stream: { ...streamState },
                   ...(finalCitations.length > 0
                     ? { citations: finalCitations }
@@ -289,7 +292,7 @@ export default function ChatPage() {
           )
         );
 
-        if (fullContent.trim()) {
+        if (persistContent.trim()) {
           try {
             const saveRes = await fetch("/api/messages", {
               method: "POST",
@@ -297,7 +300,7 @@ export default function ChatPage() {
               body: JSON.stringify({
                 sessionId,
                 role: "assistant",
-                content: fullContent,
+                content: persistContent,
               }),
             });
             if (saveRes.ok) {
@@ -518,11 +521,20 @@ export default function ChatPage() {
         if (res.ok) {
           const { messages: dbMessages } = await res.json();
           const loaded = dbMessages.map(
-            (m: { id: string; role: string; content: string }) => ({
-              id: m.id,
-              role: m.role as "user" | "assistant",
-              content: m.content,
-            })
+            (m: { id: string; role: string; content: string }) => {
+              const base: Message = {
+                id: m.id,
+                role: m.role as "user" | "assistant",
+                content: m.content,
+              };
+              if (m.role === "assistant") {
+                const citations = extractCitationsFromText(m.content);
+                if (citations.length > 0) {
+                  base.citations = citations;
+                }
+              }
+              return base;
+            }
           );
           setMessages(loaded);
           messagesRef.current = loaded;
