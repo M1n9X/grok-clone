@@ -1,7 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import { useState, useCallback, useMemo, memo, type ReactNode } from "react";
+import type { Components } from "react-markdown";
 import { Copy, Check, ExternalLink } from "lucide-react";
 import { type Citation, extractDomain, injectCitationLinks } from "@/lib/chat-stream-events";
 
@@ -13,10 +15,9 @@ const ReactMarkdownLazy = dynamic(
         import("remark-gfm"),
       ]);
     const plugins = [remarkGfm];
-    function Md(props: { children: string; components?: unknown }) {
+    function Md(props: { children: string; components?: Components }) {
       return (
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        <ReactMarkdown remarkPlugins={plugins} components={props.components as any}>
+        <ReactMarkdown remarkPlugins={plugins} components={props.components}>
           {props.children}
         </ReactMarkdown>
       );
@@ -140,9 +141,12 @@ function CitationLink({
         className="citation-chip inline-flex items-center gap-1 rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-xs font-medium no-underline transition-colors hover:bg-muted"
         onClick={(e) => e.stopPropagation()}
       >
-        <img
+        <Image
           src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
           alt=""
+          width={12}
+          height={12}
+          unoptimized
           className="h-3 w-3 rounded-[2px]"
           onError={(e) => {
             (e.target as HTMLImageElement).style.display = "none";
@@ -156,9 +160,12 @@ function CitationLink({
       {showTooltip && (
         <div className="citation-tooltip absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-border bg-popover p-3 shadow-xl">
           <div className="flex items-center gap-1.5">
-            <img
+            <Image
               src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
               alt=""
+              width={14}
+              height={14}
+              unoptimized
               className="h-3.5 w-3.5 rounded-sm"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = "none";
@@ -189,8 +196,11 @@ function extractText(children: ReactNode): string {
   if (typeof children === "number") return String(children);
   if (!children) return "";
   if (Array.isArray(children)) return children.map(extractText).join("");
-  if (typeof children === "object" && children !== null && "props" in children)
-    return extractText((children as { props: { children?: ReactNode } }).props.children);
+  if (typeof children === "object" && children !== null && "props" in children) {
+    return extractText(
+      (children as { props: { children?: ReactNode } }).props.children
+    );
+  }
   return "";
 }
 
@@ -201,17 +211,17 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
   children: string;
   citations?: Citation[];
 }) {
-  const hasCitations = citations != null && citations.length > 0;
-
   const processed = useMemo(
-    () => (hasCitations ? injectCitationLinks(children, citations!) : children),
-    [children, hasCitations, citations]
+    () =>
+      citations && citations.length > 0
+        ? injectCitationLinks(children, citations)
+        : children,
+    [children, citations]
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const components = useMemo((): any => {
+  const components = useMemo<Components>(() => {
     return {
-      code({ className, children, ...rest }: any) {
+      code({ className, children, ...rest }) {
         const match = /language-(\w+)/.exec(className || "");
         const codeString = String(children).replace(/\n$/, "");
 
@@ -225,10 +235,10 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
           </code>
         );
       },
-      pre({ children }: any) {
+      pre({ children }) {
         return <>{children}</>;
       },
-      a({ href, children }: any) {
+      a({ href, children }) {
         if (!href) return <span>{children}</span>;
 
         const text = extractText(children).trim();

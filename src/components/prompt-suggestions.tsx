@@ -14,6 +14,7 @@ const SUGGESTIONS = [
     icon: Globe,
     text: "Search the latest AI news today",
     description: "Web search",
+    webSearch: true,
   },
   {
     icon: Code2,
@@ -43,16 +44,19 @@ const SUGGESTIONS = [
 ];
 
 interface PromptSuggestionsProps {
-  onSelect: (text: string) => void;
+  onSelect: (
+    text: string,
+    options?: { model?: string; webSearch?: boolean; xSearch?: boolean }
+  ) => void;
 }
 
 export function PromptSuggestions({ onSelect }: PromptSuggestionsProps) {
   return (
     <div className="mx-auto mt-6 grid w-full max-w-3xl grid-cols-2 gap-2 px-3 sm:grid-cols-3 sm:px-4">
-      {SUGGESTIONS.map(({ icon: Icon, text, description }) => (
+      {SUGGESTIONS.map(({ icon: Icon, text, description, webSearch = false }) => (
         <button
           key={text}
-          onClick={() => onSelect(text)}
+          onClick={() => onSelect(text, { webSearch })}
           className="group flex flex-col items-start gap-2 rounded-xl border border-border bg-background p-3 text-left transition-colors hover:bg-muted"
         >
           <Icon className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { CHAT_LIMITS } from "@/lib/chat-request-guard";
 
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -18,6 +19,10 @@ export async function POST(req: Request) {
 
   if (role !== "assistant" && role !== "user") {
     return Response.json({ error: "Invalid role" }, { status: 400 });
+  }
+
+  if (typeof content !== "string" || content.length > CHAT_LIMITS.maxMessageChars) {
+    return Response.json({ error: "Invalid content" }, { status: 400 });
   }
 
   // Verify session ownership to prevent IDOR
@@ -81,6 +86,7 @@ export async function DELETE(req: Request) {
     .from("chat_messages")
     .delete()
     .eq("session_id", target.session_id)
+    .eq("user_id", user.id)
     .gte("created_at", target.created_at);
 
   if (deleteFromErr) {

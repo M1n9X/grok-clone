@@ -14,6 +14,7 @@ import {
   X,
   ExternalLink,
 } from "lucide-react";
+import Image from "next/image";
 import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { useToast } from "@/components/toast";
@@ -503,9 +504,12 @@ function CitationDrawer({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
-                    <img
+                    <Image
                       src={`https://www.google.com/s2/favicons?domain=${citation.domain}&sz=32`}
                       alt=""
+                      width={14}
+                      height={14}
+                      unoptimized
                       className="h-3.5 w-3.5 rounded-sm"
                       onError={(e) => {
                         (e.target as HTMLImageElement).style.display = "none";

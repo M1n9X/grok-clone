@@ -6,11 +6,18 @@ import {
   extractResponsesApiEvents,
   type ChatStreamEvent,
 } from "@/lib/chat-stream-events";
+import {
+  CHAT_LIMITS,
+  createMemoryRateLimiter,
+  parseModelMode,
+  validateChatMessages,
+  type ModelMode,
+} from "@/lib/chat-request-guard";
 
 export const maxDuration = 60;
 
 const MODEL_CONFIG: Record<
-  string,
+  ModelMode,
   {
     model: string;
     reasoningEffort: "none" | "low" | "medium" | "high";
@@ -34,6 +41,17 @@ const MODEL_CONFIG: Record<
   },
 };
 
+const checkChatRateLimit = createMemoryRateLimiter({
+  limit: readPositiveInt(
+    process.env.CHAT_RATE_LIMIT_REQUESTS,
+    CHAT_LIMITS.rateLimitRequests
+  ),
+  windowMs: readPositiveInt(
+    process.env.CHAT_RATE_LIMIT_WINDOW_MS,
+    CHAT_LIMITS.rateLimitWindowMs
+  ),
+});
+
 export async function POST(req: Request) {
   const supabase = await createClient();
   const {
@@ -44,17 +62,45 @@ export async function POST(req: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { messages, model, webSearch, xSearch } = await req.json();
-
-  if (!messages || !Array.isArray(messages) || messages.length === 0) {
-    return Response.json({ error: "Invalid messages" }, { status: 400 });
+  let payload: unknown;
+  try {
+    payload = await req.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const selectedConfig = MODEL_CONFIG[model] ?? MODEL_CONFIG.auto!;
-  const resolvedModel =
-    typeof model === "string" && !MODEL_CONFIG[model]
-      ? model
-      : selectedConfig.model;
+  const { messages, model, webSearch, xSearch } = payload as {
+    messages?: unknown;
+    model?: unknown;
+    webSearch?: unknown;
+    xSearch?: unknown;
+  };
+
+  const modelMode = parseModelMode(model);
+  if (!modelMode) {
+    return Response.json({ error: "Invalid model" }, { status: 400 });
+  }
+
+  const validation = validateChatMessages(messages);
+  if (!validation.ok) {
+    return Response.json({ error: validation.error }, { status: 400 });
+  }
+
+  const rateLimit = checkChatRateLimit(user.id);
+  if (!rateLimit.allowed) {
+    return Response.json(
+      { error: "Too many requests. Please wait before trying again." },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rateLimit.retryAfterSeconds),
+        },
+      }
+    );
+  }
+
+  const selectedConfig = MODEL_CONFIG[modelMode];
+  const resolvedModel = selectedConfig.model;
   const reasoningEffort = selectedConfig.reasoningEffort;
   const statusLabel = selectedConfig.statusLabel;
   const baseURL = (
@@ -64,12 +110,7 @@ export async function POST(req: Request) {
   const forceResponsesApi =
     process.env.GROK_USE_RESPONSES_API === "false" ? false : undefined;
 
-  const typedMessages = messages.map(
-    (m: { role: string; content: string }) => ({
-      role: m.role,
-      content: m.content,
-    })
-  );
+  const typedMessages = validation.messages;
 
   if (!apiKey) {
     return Response.json(
@@ -169,6 +210,12 @@ export async function POST(req: Request) {
       "X-Accel-Buffering": "no",
     },
   });
+}
+
+function readPositiveInt(value: string | undefined, fallback: number) {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 async function pipeSseEvents(

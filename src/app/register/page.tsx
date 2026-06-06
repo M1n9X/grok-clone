@@ -4,7 +4,7 @@ import { RegisterForm } from "@/components/register-form";
 export const dynamic = "force-dynamic";
 
 export default function RegisterPage() {
-  const registrationEnabled = process.env.ENABLE_REGISTRATION !== "false";
+  const registrationEnabled = process.env.ENABLE_REGISTRATION === "true";
 
   if (!registrationEnabled) {
     return (

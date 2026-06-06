@@ -34,23 +34,33 @@ export default function HomePage() {
     ) => {
       setSendingMessage(content);
 
-      const res = await fetch("/api/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: content.slice(0, 50) + (content.length > 50 ? "..." : ""),
-        }),
-      });
+      try {
+        const res = await fetch("/api/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: content.slice(0, 50) + (content.length > 50 ? "..." : ""),
+            model,
+          }),
+        });
 
-      if (res.ok) {
-        const session = await res.json();
-        window.sessionStorage.setItem(
-          `pending-msg-${session.id}`,
-          JSON.stringify({ content, model, webSearch, xSearch })
-        );
-        window.sessionStorage.setItem("refreshSessions", "true");
-        router.push(`/chat/${session.id}`);
-      } else {
+        if (res.status === 401) {
+          router.push("/login");
+          return;
+        }
+
+        if (res.ok) {
+          const session = await res.json();
+          window.sessionStorage.setItem(
+            `pending-msg-${session.id}`,
+            JSON.stringify({ content, model, webSearch, xSearch })
+          );
+          window.sessionStorage.setItem("refreshSessions", "true");
+          router.push(`/chat/${session.id}`);
+        } else {
+          setSendingMessage(null);
+        }
+      } catch {
         setSendingMessage(null);
       }
     },
@@ -106,20 +116,31 @@ export default function HomePage() {
             </div>
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-0 pb-6">
-            <GrokLogo className="mb-8 hidden h-12 w-auto text-foreground md:block" />
+          <div className="min-h-0 flex-1 overflow-y-auto px-0">
+            <div className="mx-auto flex min-h-full w-full flex-col items-center justify-start py-6 sm:justify-center">
+              <GrokLogo className="mb-8 hidden h-12 w-auto text-foreground md:block" />
 
-            <ChatInput
-              onSend={handleSend}
-              isLoading={false}
-              onStop={handleStop}
-            />
+              <ChatInput
+                onSend={handleSend}
+                isLoading={false}
+                onStop={handleStop}
+              />
 
-            <p className="mt-3 px-4 text-center text-xs text-muted-foreground">
-              Grok can make mistakes. Verify important information.
-            </p>
+              <p className="mt-3 px-4 text-center text-xs text-muted-foreground">
+                Grok can make mistakes. Verify important information.
+              </p>
 
-            <PromptSuggestions onSelect={handleSend} />
+              <PromptSuggestions
+                onSelect={(text, options) =>
+                  handleSend(
+                    text,
+                    options?.model ?? "auto",
+                    options?.webSearch ?? false,
+                    options?.xSearch ?? false
+                  )
+                }
+              />
+            </div>
           </div>
         )}
       </main>

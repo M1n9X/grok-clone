@@ -42,13 +42,15 @@ cp .env.local.example .env.local
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
 | `XAI_API_KEY` or `OPENAI_API_KEY` | xAI/OpenAI-compatible API key |
 | `OPENAI_API_BASE_URL` | API base URL (default: `https://api.x.ai/v1`) |
 | `OPENAI_MODEL_FAST` | Fast mode model (default: `grok-4.3`, `reasoning.effort=none`) |
 | `OPENAI_MODEL_AUTO` | Auto mode model (default: `grok-4.3`, `reasoning.effort=low`) |
 | `OPENAI_MODEL_EXPERT` | Expert mode model (default: `grok-4.3`, `reasoning.effort=high`) |
 | `GROK_USE_RESPONSES_API` | Set to `false` to force Chat Completions fallback |
+| `ENABLE_REGISTRATION` | Set to `true` to allow public sign-up; defaults to closed |
+| `CHAT_RATE_LIMIT_REQUESTS` | Per-instance requests per user per window (default: `20`) |
+| `CHAT_RATE_LIMIT_WINDOW_MS` | Rate-limit window in milliseconds (default: `60000`) |
 
 ### 3. Install & Run
 

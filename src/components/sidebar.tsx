@@ -48,6 +48,10 @@ export function Sidebar({
     lastFetchRef.current = now;
     try {
       const res = await fetch("/api/sessions");
+      if (res.status === 401) {
+        router.push("/login");
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setSessions(data);
@@ -55,7 +59,7 @@ export function Sidebar({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     fetchSessions();
@@ -101,6 +105,10 @@ export function Sidebar({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: "New Chat" }),
       });
+      if (res.status === 401) {
+        router.push("/login");
+        return;
+      }
       if (res.ok) {
         const session = await res.json();
         await fetchSessions();
@@ -120,11 +128,16 @@ export function Sidebar({
   async function handleDelete(id: string, e: React.MouseEvent) {
     e.stopPropagation();
     try {
-      await fetch("/api/sessions", {
+      const res = await fetch("/api/sessions", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
       });
+      if (res.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!res.ok) return;
       setSessions((prev) => prev.filter((s) => s.id !== id));
       if (pathname === `/chat/${id}`) {
         router.push("/");
@@ -147,11 +160,16 @@ export function Sidebar({
       return;
     }
     try {
-      await fetch(`/api/sessions/${id}`, {
+      const res = await fetch(`/api/sessions/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: editTitle.trim() }),
       });
+      if (res.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!res.ok) return;
       setSessions((prev) =>
         prev.map((s) =>
           s.id === id ? { ...s, title: editTitle.trim() } : s

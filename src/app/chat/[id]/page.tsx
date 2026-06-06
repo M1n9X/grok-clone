@@ -72,6 +72,10 @@ export default function ChatPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId, role: "user", content }),
         });
+        if (res.status === 401) {
+          router.push("/login");
+          return null;
+        }
         if (res.ok) {
           const { id } = await res.json();
           return id;
@@ -82,7 +86,7 @@ export default function ChatPage() {
       }
       return null;
     },
-    [sessionId]
+    [router, sessionId]
   );
 
   const streamResponse = useCallback(
@@ -145,6 +149,10 @@ export default function ChatPage() {
         });
 
         if (!res.ok) {
+          if (res.status === 401) {
+            router.push("/login");
+            return;
+          }
           let errorMsg = `Request failed (${res.status})`;
           try {
             const errData = await res.json();
@@ -303,7 +311,9 @@ export default function ChatPage() {
                 content: persistContent,
               }),
             });
-            if (saveRes.ok) {
+            if (saveRes.status === 401) {
+              router.push("/login");
+            } else if (saveRes.ok) {
               const { id: dbId } = await saveRes.json();
               const idx = messagesRef.current.findIndex(
                 (m) => m.id === assistantId
@@ -326,7 +336,7 @@ export default function ChatPage() {
         }
       }
     },
-    [sessionId]
+    [router, sessionId]
   );
 
   const sendMessage = useCallback(
@@ -338,7 +348,7 @@ export default function ChatPage() {
     ) => {
       if (!content.trim()) return;
       setIsLoading(true);
-      const historyCount = messagesRef.current.length;
+      const historySnapshot = messagesRef.current.slice();
 
       const userMessage: Message = {
         id: `user-${Date.now()}`,
@@ -354,31 +364,50 @@ export default function ChatPage() {
         stream: createInitialStreamState(webSearch, xSearch),
       };
 
-      setMessages((prev) => [...prev, userMessage, assistantMessage]);
+      const optimisticMessages = [
+        ...historySnapshot,
+        userMessage,
+        assistantMessage,
+      ];
+      setMessages(optimisticMessages);
+      messagesRef.current = optimisticMessages;
 
-      if (messagesRef.current.filter((m) => m.role === "user").length === 0) {
+      if (historySnapshot.filter((m) => m.role === "user").length === 0) {
         const title =
           content.length > 50 ? content.slice(0, 50) + "..." : content;
         updateSessionTitle(title);
       }
 
-      // Save user message in background — don't block streaming start
-      saveUserMessage(content).then((savedId) => {
-        if (savedId) {
-          const idx = messagesRef.current.findIndex(
-            (m) => m.id === userMessage.id
-          );
-          if (idx !== -1) messagesRef.current[idx]!.id = savedId;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === userMessage.id ? { ...m, id: savedId } : m
-            )
-          );
-        }
-      });
+      const savedId = await saveUserMessage(content);
+      if (!savedId) {
+        const failedMessages = messagesRef.current.map((m) =>
+          m.id === assistantId
+            ? {
+                ...m,
+                content:
+                  "Unable to save your message. Please refresh and try again.",
+                stream: {
+                  ...createInitialStreamState(false, false),
+                  status: "Error",
+                  completedAt: Date.now(),
+                },
+              }
+            : m
+        );
+        setMessages(failedMessages);
+        messagesRef.current = failedMessages;
+        setIsLoading(false);
+        return;
+      }
+
+      const savedMessages = messagesRef.current.map((m) =>
+        m.id === userMessage.id ? { ...m, id: savedId } : m
+      );
+      setMessages(savedMessages);
+      messagesRef.current = savedMessages;
 
       const apiMessages = [
-        ...messagesRef.current.slice(0, historyCount).map((m) => ({
+        ...historySnapshot.map((m) => ({
           role: m.role,
           content: m.content,
         })),
@@ -397,13 +426,17 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messageId }),
       });
+      if (res.status === 401) {
+        router.push("/login");
+        return;
+      }
       if (!res.ok) {
         console.error("Failed to delete messages:", res.status);
       }
-    } catch (err) {
-      console.error("Failed to delete messages:", err);
-    }
-  }, []);
+      } catch (err) {
+        console.error("Failed to delete messages:", err);
+      }
+  }, [router]);
 
   const regenerateFrom = useCallback(
     async (userIdx: number) => {
@@ -579,17 +612,28 @@ export default function ChatPage() {
         </header>
 
         {messages.length === 0 ? (
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center pb-6">
-            <GrokLogo className="mb-8 hidden h-12 w-auto text-foreground md:block" />
-            <ChatInput
-              onSend={sendMessage}
-              isLoading={isLoading}
-              onStop={handleStop}
-            />
-            <p className="mt-3 px-4 text-center text-xs text-muted-foreground">
-              Grok can make mistakes. Verify important information.
-            </p>
-            <PromptSuggestions onSelect={sendMessage} />
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto flex min-h-full w-full flex-col items-center justify-start py-6 sm:justify-center">
+              <GrokLogo className="mb-8 hidden h-12 w-auto text-foreground md:block" />
+              <ChatInput
+                onSend={sendMessage}
+                isLoading={isLoading}
+                onStop={handleStop}
+              />
+              <p className="mt-3 px-4 text-center text-xs text-muted-foreground">
+                Grok can make mistakes. Verify important information.
+              </p>
+              <PromptSuggestions
+                onSelect={(text, options) =>
+                  sendMessage(
+                    text,
+                    options?.model ?? "auto",
+                    options?.webSearch ?? false,
+                    options?.xSearch ?? false
+                  )
+                }
+              />
+            </div>
           </div>
         ) : (
           <>

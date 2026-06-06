@@ -10,7 +10,7 @@ import {
   extractResponsesApiEvents,
   injectCitationLinks,
   parseTaggedThinkingSummary,
-} from "../src/lib/chat-stream-events.ts";
+} from "../src/lib/chat-stream-events";
 
 test("encodes and decodes one stream event per line", () => {
   const line = encodeStreamEvent({ type: "text", delta: "Hello" });
@@ -160,7 +160,10 @@ test("injects thinking instruction and reasoning params for low effort (auto mod
     role: "user",
     content: "Hello",
   });
-  assert.equal(request.body.reasoning?.effort, "low");
+  assert.equal(
+    (request.body.reasoning as { effort?: string } | undefined)?.effort,
+    "low"
+  );
 });
 
 test("skips thinking instruction and reasoning_effort when effort is none", () => {

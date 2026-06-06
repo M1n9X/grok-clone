@@ -4,6 +4,7 @@ import {
   createSession,
   deleteSession,
 } from "@/lib/db/queries";
+import { parseModelMode } from "@/lib/chat-request-guard";
 
 export async function GET() {
   try {
@@ -21,9 +22,19 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const { title, model } = await req.json();
+    const modelMode = parseModelMode(model);
+    if (!modelMode) {
+      return NextResponse.json({ error: "Invalid model" }, { status: 400 });
+    }
+
+    const normalizedTitle =
+      typeof title === "string" && title.trim()
+        ? title.trim().slice(0, 120)
+        : "New Chat";
+
     const session = await createSession(
-      title || "New Chat",
-      model || process.env.OPENAI_MODEL || "gpt-4o"
+      normalizedTitle,
+      modelMode
     );
     return NextResponse.json(session);
   } catch {

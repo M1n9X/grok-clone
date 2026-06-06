@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { getAuthRouteDecision } from "@/lib/auth-routing";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -29,35 +30,21 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const registrationEnabled = process.env.ENABLE_REGISTRATION !== "false";
+  const registrationEnabled = process.env.ENABLE_REGISTRATION === "true";
 
-  // Block access to /register when registration is disabled
-  if (!registrationEnabled && request.nextUrl.pathname.startsWith("/register")) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
+  const decision = getAuthRouteDecision({
+    pathname: request.nextUrl.pathname,
+    isAuthenticated: Boolean(user),
+    registrationEnabled,
+  });
+
+  if (decision.type === "api-unauthorized") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Redirect unauthenticated users to login
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith("/login") &&
-    !request.nextUrl.pathname.startsWith("/register") &&
-    !request.nextUrl.pathname.startsWith("/auth")
-  ) {
+  if (decision.type === "redirect") {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
-  }
-
-  // Redirect authenticated users away from auth pages
-  if (
-    user &&
-    (request.nextUrl.pathname.startsWith("/login") ||
-      request.nextUrl.pathname.startsWith("/register"))
-  ) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = decision.pathname;
     return NextResponse.redirect(url);
   }
 

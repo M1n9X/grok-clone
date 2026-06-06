@@ -57,7 +57,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
       {typeof document !== "undefined" &&
         createPortal(
-          <div className="pointer-events-none fixed bottom-6 left-1/2 z-[100] flex -translate-x-1/2 flex-col items-center gap-2">
+          <div className="pointer-events-none fixed top-[max(1rem,env(safe-area-inset-top))] left-1/2 z-[100] flex -translate-x-1/2 flex-col items-center gap-2 px-3">
             {toasts.map((t) => {
               const Icon = icons[t.type];
               return (
