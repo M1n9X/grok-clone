@@ -15,6 +15,7 @@ import {
   injectCitationLinks,
   type Citation,
 } from "@/lib/chat-stream-events";
+import { prepareSessionLoad } from "@/lib/message-session-flow";
 import { GrokLogo } from "@/components/grok-logo";
 import { PromptSuggestions } from "@/components/prompt-suggestions";
 
@@ -26,7 +27,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
-  const initializedRef = useRef(false);
+  const loadedSessionIdRef = useRef<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const router = useRouter();
 
@@ -58,7 +59,11 @@ export default function ChatPage() {
   );
 
   const saveUserMessage = useCallback(
-    async (content: string, sessionTitle?: string): Promise<string | null> => {
+    async (
+      content: string,
+      sessionTitle?: string,
+      sessionModel?: string
+    ): Promise<string | null> => {
       try {
         const res = await fetch("/api/messages", {
           method: "POST",
@@ -68,6 +73,7 @@ export default function ChatPage() {
             role: "user",
             content,
             ...(sessionTitle ? { sessionTitle } : {}),
+            ...(sessionModel ? { sessionModel } : {}),
           }),
         });
         if (res.status === 401) {
@@ -271,8 +277,10 @@ export default function ChatPage() {
           flushTimer = null;
         }
 
-        setIsLoading(false);
-        abortRef.current = null;
+        if (abortRef.current === abortController) {
+          setIsLoading(false);
+          abortRef.current = null;
+        }
 
         let finalCitations = streamState.citations;
         if (finalCitations.length === 0 && fullContent.trim()) {
@@ -397,7 +405,8 @@ export default function ChatPage() {
       // response starts immediately instead of waiting on the round trip.
       const savePromise = saveUserMessage(
         content,
-        isFirstUserMessage ? title : undefined
+        isFirstUserMessage ? title : undefined,
+        isFirstUserMessage ? model : undefined
       ).then((savedId) => {
         if (savedId) {
           const updated = messagesRef.current.map((m) =>
@@ -529,8 +538,24 @@ export default function ChatPage() {
   );
 
   useEffect(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
+    const loadStart = prepareSessionLoad({
+      previousSessionId: loadedSessionIdRef.current,
+      nextSessionId: sessionId,
+    });
+    if (!loadStart.shouldLoad) return;
+
+    loadedSessionIdRef.current = sessionId;
+
+    if (loadStart.shouldAbortStream) {
+      abortRef.current?.abort();
+    }
+    if (loadStart.shouldClearMessages) {
+      setMessages([]);
+      messagesRef.current = [];
+    }
+    setHistoryLoading(loadStart.historyLoading);
+
+    let cancelled = false;
 
     async function loadSession() {
       const pending = window.sessionStorage.getItem(
@@ -550,6 +575,7 @@ export default function ChatPage() {
         } catch {
           parsed = { content: pending, model: "auto" };
         }
+        if (cancelled) return;
         setHistoryLoading(false);
         sendMessage(
           parsed.content,
@@ -564,6 +590,7 @@ export default function ChatPage() {
         const res = await fetch(`/api/sessions/${sessionId}`);
         if (res.ok) {
           const { messages: dbMessages } = await res.json();
+          if (cancelled) return;
           const loaded = dbMessages.map(
             (m: { id: string; role: string; content: string }) => {
               const base: Message = {
@@ -586,13 +613,17 @@ export default function ChatPage() {
       } catch {
         // ignore
       } finally {
-        setHistoryLoading(false);
+        if (!cancelled) {
+          setHistoryLoading(false);
+        }
       }
     }
 
     loadSession();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [sendMessage, sessionId]);
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort();

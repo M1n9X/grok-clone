@@ -1,5 +1,6 @@
 import { createClient, getAuthUserId } from "@/lib/supabase/server";
 import { CHAT_LIMITS } from "@/lib/chat-request-guard";
+import { buildLazySessionInsert } from "@/lib/message-session-flow";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -12,7 +13,8 @@ export async function POST(req: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { sessionId, role, content, sessionTitle } = await req.json();
+  const { sessionId, role, content, sessionTitle, sessionModel } =
+    await req.json();
 
   if (!sessionId || !role || !content) {
     return Response.json({ error: "Missing fields" }, { status: 400 });
@@ -43,13 +45,20 @@ export async function POST(req: Request) {
     // the session row may not exist yet — create it lazily. RLS WITH CHECK
     // pins user_id, and a unique violation against another user's session
     // fails the ownership recheck below.
-    const title =
-      typeof sessionTitle === "string" && sessionTitle.trim()
-        ? sessionTitle.trim().slice(0, 120)
-        : "New Chat";
+    const lazySession = buildLazySessionInsert({
+      sessionId,
+      userId,
+      sessionTitle,
+      sessionModel,
+    });
+
+    if (!lazySession) {
+      return Response.json({ error: "Invalid model" }, { status: 400 });
+    }
+
     const { error: createErr } = await supabase
       .from("chat_sessions")
-      .insert({ id: sessionId, user_id: userId, title, model: "auto" });
+      .insert(lazySession);
 
     if (createErr && createErr.code !== "23505") {
       return Response.json({ error: "Session not found" }, { status: 404 });

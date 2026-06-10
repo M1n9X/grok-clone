@@ -7,6 +7,9 @@ const projectRoot = dirname(fileURLToPath(import.meta.url));
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   outputFileTracingRoot: projectRoot,
+  typescript: {
+    tsconfigPath: "tsconfig.next.json",
+  },
   turbopack: {
     root: projectRoot,
   },
