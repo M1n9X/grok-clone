@@ -1,20 +1,25 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUserId } from "@/lib/supabase/server";
 import { CHAT_LIMITS } from "@/lib/chat-request-guard";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(req: Request) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getAuthUserId(supabase);
 
-  if (!user) {
+  if (!userId) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { sessionId, role, content } = await req.json();
+  const { sessionId, role, content, sessionTitle } = await req.json();
 
   if (!sessionId || !role || !content) {
     return Response.json({ error: "Missing fields" }, { status: 400 });
+  }
+
+  if (typeof sessionId !== "string" || !UUID_RE.test(sessionId)) {
+    return Response.json({ error: "Invalid sessionId" }, { status: 400 });
   }
 
   if (role !== "assistant" && role !== "user") {
@@ -30,18 +35,43 @@ export async function POST(req: Request) {
     .from("chat_sessions")
     .select("id")
     .eq("id", sessionId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (!session) {
-    return Response.json({ error: "Session not found" }, { status: 404 });
+    // The client navigates optimistically with a client-generated UUID, so
+    // the session row may not exist yet — create it lazily. RLS WITH CHECK
+    // pins user_id, and a unique violation against another user's session
+    // fails the ownership recheck below.
+    const title =
+      typeof sessionTitle === "string" && sessionTitle.trim()
+        ? sessionTitle.trim().slice(0, 120)
+        : "New Chat";
+    const { error: createErr } = await supabase
+      .from("chat_sessions")
+      .insert({ id: sessionId, user_id: userId, title, model: "auto" });
+
+    if (createErr && createErr.code !== "23505") {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+    if (createErr) {
+      const { data: recheck } = await supabase
+        .from("chat_sessions")
+        .select("id")
+        .eq("id", sessionId)
+        .eq("user_id", userId)
+        .single();
+      if (!recheck) {
+        return Response.json({ error: "Session not found" }, { status: 404 });
+      }
+    }
   }
 
   const { data, error } = await supabase
     .from("chat_messages")
     .insert({
       session_id: sessionId,
-      user_id: user.id,
+      user_id: userId,
       role,
       content,
     })
@@ -57,11 +87,9 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getAuthUserId(supabase);
 
-  if (!user) {
+  if (!userId) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -75,7 +103,7 @@ export async function DELETE(req: Request) {
     .from("chat_messages")
     .select("session_id, created_at")
     .eq("id", messageId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single();
 
   if (fetchErr || !target) {
@@ -86,7 +114,7 @@ export async function DELETE(req: Request) {
     .from("chat_messages")
     .delete()
     .eq("session_id", target.session_id)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .gte("created_at", target.created_at);
 
   if (deleteFromErr) {

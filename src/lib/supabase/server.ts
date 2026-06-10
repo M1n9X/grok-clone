@@ -1,5 +1,16 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+// Resolves the authenticated user id from the JWT via getClaims: a local
+// signature check (no auth-server round trip) when the project uses
+// asymmetric signing keys, with an automatic getUser fallback for HS256.
+export async function getAuthUserId(
+  supabase: SupabaseClient
+): Promise<string | null> {
+  const { data } = await supabase.auth.getClaims();
+  return data?.claims.sub ?? null;
+}
 
 export async function createClient() {
   const cookieStore = await cookies();

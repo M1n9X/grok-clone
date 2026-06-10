@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUserId } from "@/lib/supabase/server";
 import type { ChatSession, ChatMessage } from "@/lib/types";
 
 export async function getSessions(): Promise<ChatSession[]> {
@@ -30,15 +30,13 @@ export async function createSession(
   model: string
 ): Promise<ChatSession> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getAuthUserId(supabase);
 
-  if (!user) throw new Error("Not authenticated");
+  if (!userId) throw new Error("Not authenticated");
 
   const { data, error } = await supabase
     .from("chat_sessions")
-    .insert({ user_id: user.id, title, model })
+    .insert({ user_id: userId, title, model })
     .select()
     .single();
 
@@ -85,15 +83,13 @@ export async function saveMessage(
   content: string
 ): Promise<ChatMessage> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getAuthUserId(supabase);
 
-  if (!user) throw new Error("Not authenticated");
+  if (!userId) throw new Error("Not authenticated");
 
   const { data, error } = await supabase
     .from("chat_messages")
-    .insert({ session_id: sessionId, user_id: user.id, role, content })
+    .insert({ session_id: sessionId, user_id: userId, role, content })
     .select()
     .single();
 
@@ -106,15 +102,13 @@ export async function saveMessages(
   messages: { role: "user" | "assistant" | "system"; content: string }[]
 ): Promise<ChatMessage[]> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getAuthUserId(supabase);
 
-  if (!user) throw new Error("Not authenticated");
+  if (!userId) throw new Error("Not authenticated");
 
   const rows = messages.map((m) => ({
     session_id: sessionId,
-    user_id: user.id,
+    user_id: userId,
     role: m.role,
     content: m.content,
   }));

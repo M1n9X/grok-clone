@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUserId } from "@/lib/supabase/server";
 import {
   buildModelRequest,
   encodeStreamEvent,
@@ -54,11 +54,9 @@ const checkChatRateLimit = createMemoryRateLimiter({
 
 export async function POST(req: Request) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getAuthUserId(supabase);
 
-  if (!user) {
+  if (!userId) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -86,7 +84,7 @@ export async function POST(req: Request) {
     return Response.json({ error: validation.error }, { status: 400 });
   }
 
-  const rateLimit = checkChatRateLimit(user.id);
+  const rateLimit = checkChatRateLimit(userId);
   if (!rateLimit.allowed) {
     return Response.json(
       { error: "Too many requests. Please wait before trying again." },

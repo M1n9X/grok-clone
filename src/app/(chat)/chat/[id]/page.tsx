@@ -2,8 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { PanelLeft } from "lucide-react";
-import { Sidebar } from "@/components/sidebar";
 import { ChatInput } from "@/components/chat-input";
 import {
   ChatMessages,
@@ -19,30 +17,18 @@ import {
 } from "@/lib/chat-stream-events";
 import { GrokLogo } from "@/components/grok-logo";
 import { PromptSuggestions } from "@/components/prompt-suggestions";
-import { TopBar } from "@/components/top-bar";
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
 export default function ChatPage() {
   const params = useParams();
   const sessionId = params.id as string;
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
   const initializedRef = useRef(false);
   const messagesRef = useRef<Message[]>([]);
-  const closeMobileSidebar = useCallback(() => setMobileSidebarOpen(false), []);
-  const toggleSidebar = useCallback(
-    () => setSidebarCollapsed((prev) => !prev),
-    []
-  );
   const router = useRouter();
-
-  useKeyboardShortcuts({
-    onNewChat: () => router.push("/"),
-  });
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -50,13 +36,20 @@ export default function ChatPage() {
 
   const updateSessionTitle = useCallback(
     async (title: string) => {
+      // Update the sidebar optimistically; the PATCH is best effort (it
+      // affects zero rows when the session has not been lazily created yet,
+      // in which case POST /api/messages creates it with the same title).
+      window.dispatchEvent(
+        new CustomEvent("session-upsert", {
+          detail: { id: sessionId, title },
+        })
+      );
       try {
         await fetch(`/api/sessions/${sessionId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title }),
         });
-        window.dispatchEvent(new CustomEvent("sessionTitleUpdated"));
       } catch {
         // Best effort
       }
@@ -65,12 +58,17 @@ export default function ChatPage() {
   );
 
   const saveUserMessage = useCallback(
-    async (content: string): Promise<string | null> => {
+    async (content: string, sessionTitle?: string): Promise<string | null> => {
       try {
         const res = await fetch("/api/messages", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, role: "user", content }),
+          body: JSON.stringify({
+            sessionId,
+            role: "user",
+            content,
+            ...(sessionTitle ? { sessionTitle } : {}),
+          }),
         });
         if (res.status === 401) {
           router.push("/login");
@@ -95,7 +93,8 @@ export default function ChatPage() {
       assistantId: string,
       model: string,
       webSearch: boolean,
-      xSearch: boolean
+      xSearch: boolean,
+      userSavePromise?: Promise<string | null>
     ) => {
       setIsLoading(true);
       const abortController = new AbortController();
@@ -116,10 +115,16 @@ export default function ChatPage() {
         chunks: 0,
       };
 
-      let rafId: number | null = null;
+      // Throttle UI flushes: re-parsing the full markdown of the streaming
+      // message on every animation frame causes dropped frames on long
+      // replies, and ~10 updates/s is visually indistinguishable.
+      const FLUSH_INTERVAL_MS = 100;
+      let flushTimer: number | null = null;
+      let lastFlushAt = 0;
 
       const flushToState = () => {
-        rafId = null;
+        flushTimer = null;
+        lastFlushAt = Date.now();
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
@@ -130,9 +135,9 @@ export default function ChatPage() {
       };
 
       const scheduleFlush = () => {
-        if (rafId === null) {
-          rafId = requestAnimationFrame(flushToState);
-        }
+        if (flushTimer !== null) return;
+        const wait = Math.max(0, FLUSH_INTERVAL_MS - (Date.now() - lastFlushAt));
+        flushTimer = window.setTimeout(flushToState, wait);
       };
 
       try {
@@ -261,9 +266,9 @@ export default function ChatPage() {
           fullContent = `⚠️ ${errorMessage}`;
         }
       } finally {
-        if (rafId !== null) {
-          cancelAnimationFrame(rafId);
-          rafId = null;
+        if (flushTimer !== null) {
+          window.clearTimeout(flushTimer);
+          flushTimer = null;
         }
 
         setIsLoading(false);
@@ -300,7 +305,15 @@ export default function ChatPage() {
           )
         );
 
-        if (persistContent.trim()) {
+        // Persist after the user message save settles so DB created_at
+        // ordering matches the conversation order.
+        const userSaved = userSavePromise ? await userSavePromise : true;
+        if (persistContent.trim() && !userSaved) {
+          console.error(
+            "Skipping assistant message persist: user message was not saved"
+          );
+        }
+        if (persistContent.trim() && userSaved) {
           try {
             const saveRes = await fetch("/api/messages", {
               method: "POST",
@@ -372,39 +385,29 @@ export default function ChatPage() {
       setMessages(optimisticMessages);
       messagesRef.current = optimisticMessages;
 
-      if (historySnapshot.filter((m) => m.role === "user").length === 0) {
-        const title =
-          content.length > 50 ? content.slice(0, 50) + "..." : content;
+      const isFirstUserMessage =
+        historySnapshot.filter((m) => m.role === "user").length === 0;
+      const title =
+        content.length > 50 ? content.slice(0, 50) + "..." : content;
+      if (isFirstUserMessage) {
         updateSessionTitle(title);
       }
 
-      const savedId = await saveUserMessage(content);
-      if (!savedId) {
-        const failedMessages = messagesRef.current.map((m) =>
-          m.id === assistantId
-            ? {
-                ...m,
-                content:
-                  "Unable to save your message. Please refresh and try again.",
-                stream: {
-                  ...createInitialStreamState(false, false),
-                  status: "Error",
-                  completedAt: Date.now(),
-                },
-              }
-            : m
-        );
-        setMessages(failedMessages);
-        messagesRef.current = failedMessages;
-        setIsLoading(false);
-        return;
-      }
-
-      const savedMessages = messagesRef.current.map((m) =>
-        m.id === userMessage.id ? { ...m, id: savedId } : m
-      );
-      setMessages(savedMessages);
-      messagesRef.current = savedMessages;
+      // Save the user message in parallel with the model stream so the
+      // response starts immediately instead of waiting on the round trip.
+      const savePromise = saveUserMessage(
+        content,
+        isFirstUserMessage ? title : undefined
+      ).then((savedId) => {
+        if (savedId) {
+          const updated = messagesRef.current.map((m) =>
+            m.id === userMessage.id ? { ...m, id: savedId } : m
+          );
+          setMessages(updated);
+          messagesRef.current = updated;
+        }
+        return savedId;
+      });
 
       const apiMessages = [
         ...historySnapshot.map((m) => ({
@@ -414,7 +417,14 @@ export default function ChatPage() {
         { role: "user" as const, content },
       ];
 
-      await streamResponse(apiMessages, assistantId, model, webSearch, xSearch);
+      await streamResponse(
+        apiMessages,
+        assistantId,
+        model,
+        webSearch,
+        xSearch,
+        savePromise
+      );
     },
     [saveUserMessage, streamResponse, updateSessionTitle]
   );
@@ -540,6 +550,7 @@ export default function ChatPage() {
         } catch {
           parsed = { content: pending, model: "auto" };
         }
+        setHistoryLoading(false);
         sendMessage(
           parsed.content,
           parsed.model,
@@ -574,6 +585,8 @@ export default function ChatPage() {
         }
       } catch {
         // ignore
+      } finally {
+        setHistoryLoading(false);
       }
     }
 
@@ -585,78 +598,60 @@ export default function ChatPage() {
     abortRef.current?.abort();
   }, []);
 
-  const handleNewChat = useCallback(() => router.push("/"), [router]);
+  if (messages.length === 0 && historyLoading) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center">
+        <span className="relative flex h-3 w-3">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60 opacity-75" />
+          <span className="relative inline-flex h-3 w-3 rounded-full bg-primary/40" />
+        </span>
+      </div>
+    );
+  }
 
-  return (
-    <div className="flex h-full min-w-0">
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        onToggle={toggleSidebar}
-        mobileOpen={mobileSidebarOpen}
-        onMobileClose={closeMobileSidebar}
-      />
-
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <TopBar onNewChat={handleNewChat} />
-        <header className="flex h-14 shrink-0 items-center justify-between px-3 pt-[env(safe-area-inset-top)] md:hidden">
-          <button
-            type="button"
-            onClick={() => setMobileSidebarOpen(true)}
-            aria-label="Open sidebar"
-            className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-hover hover:text-foreground"
-          >
-            <PanelLeft className="h-5 w-5" />
-          </button>
-          <GrokLogo className="h-6 w-auto text-foreground" />
-          <div className="h-10 w-10" />
-        </header>
-
-        {messages.length === 0 ? (
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto flex min-h-full w-full flex-col items-center justify-start py-6 sm:justify-center">
-              <GrokLogo className="mb-8 hidden h-12 w-auto text-foreground md:block" />
-              <ChatInput
-                onSend={sendMessage}
-                isLoading={isLoading}
-                onStop={handleStop}
-              />
-              <p className="mt-3 px-4 text-center text-xs text-muted-foreground">
-                Grok can make mistakes. Verify important information.
-              </p>
-              <PromptSuggestions
-                onSelect={(text, options) =>
-                  sendMessage(
-                    text,
-                    options?.model ?? "auto",
-                    options?.webSearch ?? false,
-                    options?.xSearch ?? false
-                  )
-                }
-              />
-            </div>
-          </div>
-        ) : (
-          <>
-            <ChatMessages
-              messages={messages}
-              isStreaming={isLoading}
-              onEdit={handleEditMessage}
-              onRegenerate={handleRegenerate}
-            />
-            <div className="shrink-0 pb-3">
-              <ChatInput
-                onSend={sendMessage}
-                isLoading={isLoading}
-                onStop={handleStop}
-              />
-              <p className="mt-2 px-4 text-center text-xs text-muted-foreground">
-                Grok can make mistakes. Verify important information.
-              </p>
-            </div>
-          </>
-        )}
-      </main>
+  return messages.length === 0 ? (
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto flex min-h-full w-full flex-col items-center justify-start py-6 sm:justify-center">
+        <GrokLogo className="mb-8 hidden h-12 w-auto text-foreground md:block" />
+        <ChatInput
+          onSend={sendMessage}
+          isLoading={isLoading}
+          onStop={handleStop}
+        />
+        <p className="mt-3 px-4 text-center text-xs text-muted-foreground">
+          Grok can make mistakes. Verify important information.
+        </p>
+        <PromptSuggestions
+          onSelect={(text, options) =>
+            sendMessage(
+              text,
+              options?.model ?? "auto",
+              options?.webSearch ?? false,
+              options?.xSearch ?? false
+            )
+          }
+        />
+      </div>
     </div>
+  ) : (
+    <>
+      <ChatMessages
+        messages={messages}
+        isStreaming={isLoading}
+        onEdit={handleEditMessage}
+        onRegenerate={handleRegenerate}
+      />
+      <div className="shrink-0 pb-3">
+        <ChatInput
+          onSend={sendMessage}
+          isLoading={isLoading}
+          onStop={handleStop}
+        />
+        <p className="mt-2 px-4 text-center text-xs text-muted-foreground">
+          Grok can make mistakes. Verify important information.
+        </p>
+      </div>
+    </>
   );
 }
 

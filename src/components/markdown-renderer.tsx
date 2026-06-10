@@ -29,10 +29,44 @@ const ReactMarkdownLazy = dynamic(
 
 const SyntaxHighlighterWithTheme = dynamic(
   async () => {
-    const [{ default: SyntaxHighlighter }, { oneDark }] = await Promise.all([
-      import("react-syntax-highlighter/dist/esm/prism"),
-      import("react-syntax-highlighter/dist/esm/styles/prism"),
-    ]);
+    // PrismLight with explicitly registered languages instead of the full
+    // Prism build (which bundles every language and weighs hundreds of KB).
+    // refractor definitions register their own aliases (js, ts, py, sh, ...);
+    // unregistered languages fall back to plain text.
+    const [{ default: SyntaxHighlighter }, { oneDark }, languages] =
+      await Promise.all([
+        import("react-syntax-highlighter/dist/esm/prism-light"),
+        import("react-syntax-highlighter/dist/esm/styles/prism"),
+        Promise.all([
+          import("react-syntax-highlighter/dist/esm/languages/prism/markup"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/css"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/javascript"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/jsx"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/typescript"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/tsx"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/python"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/bash"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/json"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/yaml"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/sql"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/go"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/rust"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/java"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/c"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/cpp"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/csharp"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/php"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/ruby"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/kotlin"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/swift"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/docker"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/diff"),
+          import("react-syntax-highlighter/dist/esm/languages/prism/markdown"),
+        ]),
+      ]);
+    for (const lang of languages) {
+      SyntaxHighlighter.registerLanguage(lang.default.displayName, lang.default);
+    }
     function StyledHighlighter({
       language,
       children,

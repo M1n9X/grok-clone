@@ -65,25 +65,40 @@ export function Sidebar({
     fetchSessions();
   }, [fetchSessions]);
 
+  // Pages announce new sessions and renames via this event; updating the
+  // list locally avoids refetching it (the sidebar lives in the layout and
+  // stays mounted across navigations).
   useEffect(() => {
-    const refreshFlag = window.sessionStorage.getItem("refreshSessions");
-    if (refreshFlag === "true") {
-      window.sessionStorage.removeItem("refreshSessions");
-      setTimeout(() => {
-        fetchSessions();
-      }, 100);
-    }
-  }, [fetchSessions]);
-
-  useEffect(() => {
-    const handleTitleUpdate = () => {
-      fetchSessions();
+    const handleUpsert = (e: Event) => {
+      const detail = (e as CustomEvent<{ id?: string; title?: string }>)
+        .detail;
+      if (!detail?.id || !detail.title) return;
+      const { id, title } = detail;
+      const now = new Date().toISOString();
+      setSessions((prev) => {
+        if (prev.some((s) => s.id === id)) {
+          return prev.map((s) =>
+            s.id === id ? { ...s, title, updated_at: now } : s
+          );
+        }
+        return [
+          {
+            id,
+            title,
+            user_id: "",
+            model: "auto",
+            created_at: now,
+            updated_at: now,
+          },
+          ...prev,
+        ];
+      });
     };
-    window.addEventListener("sessionTitleUpdated", handleTitleUpdate);
+    window.addEventListener("session-upsert", handleUpsert);
     return () => {
-      window.removeEventListener("sessionTitleUpdated", handleTitleUpdate);
+      window.removeEventListener("session-upsert", handleUpsert);
     };
-  }, [fetchSessions]);
+  }, []);
 
   useEffect(() => {
     onMobileClose?.();
@@ -98,26 +113,11 @@ export function Sidebar({
     return () => document.body.classList.remove("sidebar-open");
   }, [mobileOpen]);
 
-  async function handleNewChat() {
-    try {
-      const res = await fetch("/api/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "New Chat" }),
-      });
-      if (res.status === 401) {
-        router.push("/login");
-        return;
-      }
-      if (res.ok) {
-        const session = await res.json();
-        await fetchSessions();
-        router.push(`/chat/${session.id}`);
-        onMobileClose?.();
-      }
-    } catch {
-      // ignore
-    }
+  function handleNewChat() {
+    // The home page is the new-chat composer; sessions are created lazily
+    // on first message, so no eager POST here.
+    router.push("/");
+    onMobileClose?.();
   }
 
   function handleHome() {
@@ -341,6 +341,12 @@ export function Sidebar({
                     return (
                       <div
                         key={session.id}
+                        onMouseEnter={() =>
+                          router.prefetch(`/chat/${session.id}`)
+                        }
+                        onTouchStart={() =>
+                          router.prefetch(`/chat/${session.id}`)
+                        }
                         onClick={() => {
                           if (!isEditing) {
                             router.push(`/chat/${session.id}`);

@@ -26,15 +26,15 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims verifies the JWT locally (no network) when the Supabase project
+  // uses asymmetric signing keys; with legacy HS256 it falls back to getUser.
+  const { data } = await supabase.auth.getClaims();
 
   const registrationEnabled = process.env.ENABLE_REGISTRATION === "true";
 
   const decision = getAuthRouteDecision({
     pathname: request.nextUrl.pathname,
-    isAuthenticated: Boolean(user),
+    isAuthenticated: Boolean(data?.claims),
     registrationEnabled,
   });
 
