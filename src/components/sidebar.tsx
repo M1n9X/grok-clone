@@ -43,7 +43,6 @@ export function Sidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
   const pathname = usePathname();
-  const supabase = useMemo(() => createClient(), []);
   const lastFetchRef = useRef(0);
 
   const fetchSessions = useCallback(async () => {
@@ -198,7 +197,14 @@ export function Sidebar({
   }
 
   async function handleLogout() {
-    await supabase.auth.signOut();
+    try {
+      // Create on demand so SSR/prerender of this client component does not
+      // require Supabase env vars (Preview builds often omit them).
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    } catch {
+      // Still leave the chat shell if client init or signOut fails.
+    }
     onMobileClose?.();
     router.push("/login");
     router.refresh();
