@@ -24,7 +24,7 @@
 ### 搜索 / 发消息
 - 开启 Web Search 且当前为 Auto 时 **自动切到 Fast**（可再手动改回 Auto/Expert）
 - `/api/chat` 合并 status：Search 时直接 `Searching the web` / `Searching X`
-- `/api/messages` 首条懒创建：**直接 INSERT session**（跳过先 SELECT）；仅 23505 时 recheck 归属。后续消息仍 ownership SELECT（防 IDOR：message RLS 只校验 message.user_id）
+- `/api/messages` 保持 **SELECT 归属 → 缺失则懒创建**（与改前语义一致；防 IDOR + 首条失败后 follow-up/assistant/edit 仍可恢复）。冷路径优化回退，正确性优先
 
 ## 仍需手动（Dashboard）
 

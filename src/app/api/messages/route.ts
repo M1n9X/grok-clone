@@ -38,13 +38,18 @@ export async function POST(req: Request) {
   // Ownership must be verified before insert: message RLS only checks
   // message.user_id, not session ownership (IDOR if we skip this).
   //
-  // Cold path (first optimistic message): INSERT session directly — skips
-  // the prior SELECT. On unique conflict, recheck ownership.
-  // Warm path: SELECT ownership, then insert message.
-  const wantsLazyCreate =
-    sessionTitle !== undefined || sessionModel !== undefined;
+  // If the session is missing (optimistic UUID, or a prior first-message
+  // save failed), lazily create it. buildLazySessionInsert defaults model
+  // to "auto" and title to "New Chat" when title/model are omitted so
+  // assistant/edit/follow-up saves can still recover.
+  const { data: session } = await supabase
+    .from("chat_sessions")
+    .select("id")
+    .eq("id", sessionId)
+    .eq("user_id", userId)
+    .single();
 
-  if (wantsLazyCreate) {
+  if (!session) {
     const lazySession = buildLazySessionInsert({
       sessionId,
       userId,
@@ -73,17 +78,6 @@ export async function POST(req: Request) {
       if (!recheck) {
         return Response.json({ error: "Session not found" }, { status: 404 });
       }
-    }
-  } else {
-    const { data: session } = await supabase
-      .from("chat_sessions")
-      .select("id")
-      .eq("id", sessionId)
-      .eq("user_id", userId)
-      .single();
-
-    if (!session) {
-      return Response.json({ error: "Session not found" }, { status: 404 });
     }
   }
 
