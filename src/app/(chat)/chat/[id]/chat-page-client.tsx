@@ -42,6 +42,10 @@ export default function ChatPageClient({
   const loadedSessionIdRef = useRef<string | null>(null);
   const messagesRef = useRef<Message[]>(initialMessages);
   const isLoadingRef = useRef(false);
+  // Once the user sends/edits/regenerates this mount, background history
+  // revalidation must not overwrite local state (equal-length stale API
+  // snapshots can wipe a just-finished regenerate/edit).
+  const localHistoryDirtyRef = useRef(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -51,6 +55,10 @@ export default function ChatPageClient({
   useEffect(() => {
     isLoadingRef.current = isLoading;
   }, [isLoading]);
+
+  const markLocalHistoryDirty = useCallback(() => {
+    localHistoryDirtyRef.current = true;
+  }, []);
 
   const updateSessionTitle = useCallback(
     async (title: string) => {
@@ -385,6 +393,7 @@ export default function ChatPageClient({
       xSearch: boolean = false
     ) => {
       if (!content.trim()) return;
+      markLocalHistoryDirty();
       setIsLoading(true);
       const historySnapshot = messagesRef.current.slice();
 
@@ -452,7 +461,7 @@ export default function ChatPageClient({
         savePromise
       );
     },
-    [saveUserMessage, streamResponse, updateSessionTitle]
+    [markLocalHistoryDirty, saveUserMessage, streamResponse, updateSessionTitle]
   );
 
   const deleteMessagesFrom = useCallback(async (messageId: string) => {
@@ -476,6 +485,7 @@ export default function ChatPageClient({
 
   const regenerateFrom = useCallback(
     async (userIdx: number) => {
+      markLocalHistoryDirty();
       const contextMessages = messagesRef.current.slice(0, userIdx + 1);
 
       const assistantId = `assistant-${Date.now()}`;
@@ -497,7 +507,7 @@ export default function ChatPageClient({
 
       await streamResponse(apiMessages, assistantId, "auto", false, false);
     },
-    [streamResponse]
+    [markLocalHistoryDirty, streamResponse]
   );
 
   const handleEditMessage = useCallback(
@@ -507,6 +517,7 @@ export default function ChatPageClient({
       const idx = messagesRef.current.findIndex((m) => m.id === messageId);
       if (idx === -1) return;
 
+      markLocalHistoryDirty();
       await deleteMessagesFrom(messageId);
 
       const savedId = await saveUserMessage(newContent);
@@ -532,7 +543,13 @@ export default function ChatPageClient({
 
       await regenerateFrom(idx);
     },
-    [deleteMessagesFrom, saveUserMessage, updateSessionTitle, regenerateFrom]
+    [
+      deleteMessagesFrom,
+      markLocalHistoryDirty,
+      saveUserMessage,
+      updateSessionTitle,
+      regenerateFrom,
+    ]
   );
 
   const handleRegenerate = useCallback(
@@ -575,6 +592,7 @@ export default function ChatPageClient({
     // Prefer SSR payload when the parent remounted us with fresh props.
     setMessages(initialMessages);
     messagesRef.current = initialMessages;
+    localHistoryDirtyRef.current = false;
     // Keep the spinner when SSR had nothing — either pending-msg or a
     // client revalidate will clear it. Avoids empty-composer flash.
     setHistoryLoading(initialMessages.length === 0);
@@ -601,6 +619,8 @@ export default function ChatPageClient({
         }
         if (cancelled) return;
         setHistoryLoading(false);
+        // pending send mutates local history; skip applying any later
+        // revalidate for this mount (sendMessage marks dirty too).
         sendMessage(
           parsed.content,
           parsed.model,
@@ -619,9 +639,15 @@ export default function ChatPageClient({
         if (res.ok) {
           const { messages: dbMessages } = await res.json();
           if (cancelled) return;
-          // Don't clobber an in-flight send/stream or a newer optimistic
-          // conversation that started after this revalidate was kicked off.
-          if (isLoadingRef.current || abortRef.current) return;
+          // Don't clobber local mutations (send/edit/regenerate), an
+          // in-flight stream, or a longer optimistic conversation.
+          if (
+            localHistoryDirtyRef.current ||
+            isLoadingRef.current ||
+            abortRef.current
+          ) {
+            return;
+          }
           const loaded = mapDbMessagesToUi(
             dbMessages as { id: string; role: string; content: string }[]
           );
