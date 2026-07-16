@@ -41,11 +41,16 @@ export default function ChatPageClient({
   // handoff always execute once per mounted session (parent keys by id).
   const loadedSessionIdRef = useRef<string | null>(null);
   const messagesRef = useRef<Message[]>(initialMessages);
+  const isLoadingRef = useRef(false);
   const router = useRouter();
 
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    isLoadingRef.current = isLoading;
+  }, [isLoading]);
 
   const updateSessionTitle = useCallback(
     async (title: string) => {
@@ -570,7 +575,9 @@ export default function ChatPageClient({
     // Prefer SSR payload when the parent remounted us with fresh props.
     setMessages(initialMessages);
     messagesRef.current = initialMessages;
-    setHistoryLoading(false);
+    // Keep the spinner when SSR had nothing — either pending-msg or a
+    // client revalidate will clear it. Avoids empty-composer flash.
+    setHistoryLoading(initialMessages.length === 0);
 
     let cancelled = false;
 
@@ -603,39 +610,27 @@ export default function ChatPageClient({
         return;
       }
 
-      // SSR already provided history — only fall back to the API when the
-      // parent could not (e.g. soft nav without a full RSC refresh).
-      if (initialMessages.length > 0) {
-        return;
-      }
-
-      setHistoryLoading(true);
+      // Always revalidate against the API so soft-nav back to a chat picks
+      // up messages persisted after the RSC snapshot was taken. When SSR
+      // already painted history this is silent (no spinner); when SSR was
+      // empty we stay in historyLoading until the fetch settles.
       try {
         const res = await fetch(`/api/sessions/${sessionId}`);
         if (res.ok) {
           const { messages: dbMessages } = await res.json();
           if (cancelled) return;
-          const loaded = dbMessages.map(
-            (m: { id: string; role: string; content: string }) => {
-              const base: Message = {
-                id: m.id,
-                role: m.role as "user" | "assistant",
-                content: m.content,
-              };
-              if (m.role === "assistant") {
-                const citations = extractCitationsFromText(m.content);
-                if (citations.length > 0) {
-                  base.citations = citations;
-                }
-              }
-              return base;
-            }
+          // Don't clobber an in-flight send/stream or a newer optimistic
+          // conversation that started after this revalidate was kicked off.
+          if (isLoadingRef.current || abortRef.current) return;
+          const loaded = mapDbMessagesToUi(
+            dbMessages as { id: string; role: string; content: string }[]
           );
+          if (messagesRef.current.length > loaded.length) return;
           setMessages(loaded);
           messagesRef.current = loaded;
         }
       } catch {
-        // ignore
+        // ignore — keep SSR snapshot if we had one
       } finally {
         if (!cancelled) {
           setHistoryLoading(false);
@@ -646,6 +641,9 @@ export default function ChatPageClient({
     loadSession();
     return () => {
       cancelled = true;
+      // key={sessionId} remounts this client on route change, so abort any
+      // in-flight stream here (prepareSessionLoad never sees the previous id).
+      abortRef.current?.abort();
     };
   }, [initialMessages, sendMessage, sessionId]);
 
@@ -727,6 +725,27 @@ function createInitialStreamState(
     startedAt: Date.now(),
     chunks: 0,
   };
+}
+
+function mapDbMessagesToUi(
+  dbMessages: { id: string; role: string; content: string }[]
+): Message[] {
+  return dbMessages
+    .filter((m) => m.role === "user" || m.role === "assistant")
+    .map((m) => {
+      const base: Message = {
+        id: m.id,
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      };
+      if (m.role === "assistant") {
+        const citations = extractCitationsFromText(m.content);
+        if (citations.length > 0) {
+          base.citations = citations;
+        }
+      }
+      return base;
+    });
 }
 
 function mergeCitations(
