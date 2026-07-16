@@ -28,23 +28,23 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid role" }, { status: 400 });
   }
 
-  if (typeof content !== "string" || content.length > CHAT_LIMITS.maxMessageChars) {
+  if (
+    typeof content !== "string" ||
+    content.length > CHAT_LIMITS.maxMessageChars
+  ) {
     return Response.json({ error: "Invalid content" }, { status: 400 });
   }
 
-  // Verify session ownership to prevent IDOR
-  const { data: session } = await supabase
-    .from("chat_sessions")
-    .select("id")
-    .eq("id", sessionId)
-    .eq("user_id", userId)
-    .single();
+  // Ownership must be verified before insert: message RLS only checks
+  // message.user_id, not session ownership (IDOR if we skip this).
+  //
+  // Cold path (first optimistic message): INSERT session directly — skips
+  // the prior SELECT. On unique conflict, recheck ownership.
+  // Warm path: SELECT ownership, then insert message.
+  const wantsLazyCreate =
+    sessionTitle !== undefined || sessionModel !== undefined;
 
-  if (!session) {
-    // The client navigates optimistically with a client-generated UUID, so
-    // the session row may not exist yet — create it lazily. RLS WITH CHECK
-    // pins user_id, and a unique violation against another user's session
-    // fails the ownership recheck below.
+  if (wantsLazyCreate) {
     const lazySession = buildLazySessionInsert({
       sessionId,
       userId,
@@ -73,6 +73,17 @@ export async function POST(req: Request) {
       if (!recheck) {
         return Response.json({ error: "Session not found" }, { status: 404 });
       }
+    }
+  } else {
+    const { data: session } = await supabase
+      .from("chat_sessions")
+      .select("id")
+      .eq("id", sessionId)
+      .eq("user_id", userId)
+      .single();
+
+    if (!session) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
     }
   }
 

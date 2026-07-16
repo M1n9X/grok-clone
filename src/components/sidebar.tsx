@@ -24,6 +24,8 @@ interface SidebarProps {
   onToggle: () => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
+  /** SSR-provided sessions so the list paints without a client waterfall. */
+  initialSessions?: ChatSession[];
 }
 
 export function Sidebar({
@@ -31,9 +33,11 @@ export function Sidebar({
   onToggle,
   mobileOpen = false,
   onMobileClose,
+  initialSessions = [],
 }: SidebarProps) {
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [sessions, setSessions] = useState<ChatSession[]>(initialSessions);
+  // Skip the loading flash when the server already gave us a list.
+  const [loading, setLoading] = useState(initialSessions.length === 0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -61,8 +65,17 @@ export function Sidebar({
     }
   }, [router]);
 
+  // Background reconcile after SSR (and on tab focus) without a Loading flash
+  // when we already painted initialSessions.
   useEffect(() => {
     fetchSessions();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        fetchSessions();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [fetchSessions]);
 
   // Pages announce new sessions and renames via this event; updating the

@@ -110,6 +110,19 @@ export function ChatInput({
     setInput("");
   }
 
+  function toggleWebSearch() {
+    setWebSearch((value) => {
+      const next = !value;
+      // Multi-agent Auto + web_search is the slowest default path; when the
+      // user turns Search on, prefer Fast so first token arrives sooner.
+      // They can still pick Auto/Expert manually afterwards.
+      if (next && model === "auto") {
+        setModel("fast");
+      }
+      return next;
+    });
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -133,7 +146,7 @@ export function ChatInput({
 
           <button
             type="button"
-            onClick={() => setWebSearch((value) => !value)}
+            onClick={toggleWebSearch}
             aria-pressed={webSearch}
             className={clsx(
               "order-2 mb-0.5 flex h-9 shrink-0 items-center gap-2 rounded-full px-2.5 text-sm transition-colors sm:order-none",

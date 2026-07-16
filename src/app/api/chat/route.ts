@@ -134,9 +134,19 @@ export async function POST(req: Request) {
       };
 
       try {
-        send({ type: "status", label: "Preparing response" });
-
-        send({ type: "status", label: statusLabel });
+        const wantsSearch = Boolean(webSearch) || Boolean(xSearch);
+        // One status before the upstream round-trip: search-aware so the UI
+        // does not sit on a generic "Thinking" while tools run.
+        send({
+          type: "status",
+          label: wantsSearch
+            ? webSearch && xSearch
+              ? "Searching the web & X"
+              : webSearch
+                ? "Searching the web"
+                : "Searching X"
+            : statusLabel,
+        });
 
         upstreamAbort = new AbortController();
         const modelRequest = buildModelRequest({

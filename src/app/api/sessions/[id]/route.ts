@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession, getMessages, updateSessionTitle } from "@/lib/db/queries";
+import { getSessionWithMessages, updateSessionTitle } from "@/lib/db/queries";
 
 export async function GET(
   _req: Request,
@@ -7,22 +7,25 @@ export async function GET(
 ) {
   const { id } = await params;
   try {
-    const [session, messages] = await Promise.all([
-      getSession(id),
-      getMessages(id),
-    ]);
+    const { session, messages } = await getSessionWithMessages(id);
 
     if (!session) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ session, messages }, {
-      headers: {
-        "Cache-Control": "private, max-age=0, stale-while-revalidate=5",
-      },
-    });
+    return NextResponse.json(
+      { session, messages },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=0, stale-while-revalidate=5",
+        },
+      }
+    );
   } catch {
-    return NextResponse.json({ error: "Failed to fetch session" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to fetch session" },
+      { status: 500 }
+    );
   }
 }
 
@@ -38,6 +41,9 @@ export async function PATCH(
     }
     return NextResponse.json({ success: true });
   } catch {
-    return NextResponse.json({ error: "Failed to update session" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to update session" },
+      { status: 500 }
+    );
   }
 }

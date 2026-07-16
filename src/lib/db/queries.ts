@@ -1,9 +1,16 @@
 import { createClient, getAuthUserId } from "@/lib/supabase/server";
 import type { ChatSession, ChatMessage } from "@/lib/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-export async function getSessions(): Promise<ChatSession[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
+async function getClient(supabase?: SupabaseClient) {
+  return supabase ?? (await createClient());
+}
+
+export async function getSessions(
+  supabase?: SupabaseClient
+): Promise<ChatSession[]> {
+  const client = await getClient(supabase);
+  const { data, error } = await client
     .from("chat_sessions")
     .select("id, title, updated_at, user_id, model, created_at")
     .order("updated_at", { ascending: false })
@@ -13,9 +20,12 @@ export async function getSessions(): Promise<ChatSession[]> {
   return data ?? [];
 }
 
-export async function getSession(id: string): Promise<ChatSession | null> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
+export async function getSession(
+  id: string,
+  supabase?: SupabaseClient
+): Promise<ChatSession | null> {
+  const client = await getClient(supabase);
+  const { data, error } = await client
     .from("chat_sessions")
     .select("id, title, user_id, model, created_at, updated_at")
     .eq("id", id)
@@ -23,6 +33,42 @@ export async function getSession(id: string): Promise<ChatSession | null> {
 
   if (error) return null;
   return data;
+}
+
+export async function getMessages(
+  sessionId: string,
+  supabase?: SupabaseClient
+): Promise<ChatMessage[]> {
+  const client = await getClient(supabase);
+  const { data, error } = await client
+    .from("chat_messages")
+    .select("id, session_id, role, content, created_at, user_id")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: true })
+    .limit(200);
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Single-client session + messages fetch for SSR and API routes. */
+export async function getSessionWithMessages(id: string): Promise<{
+  session: ChatSession | null;
+  messages: ChatMessage[];
+}> {
+  const supabase = await createClient();
+  const [session, messages] = await Promise.all([
+    getSession(id, supabase),
+    getMessages(id, supabase),
+  ]);
+
+  // If the session row is missing (optimistic client UUID not yet created),
+  // return empty messages even if a stray query somehow returned rows.
+  if (!session) {
+    return { session: null, messages: [] };
+  }
+
+  return { session, messages };
 }
 
 export async function createSession(
@@ -56,25 +102,9 @@ export async function updateSessionTitle(id: string, title: string) {
 
 export async function deleteSession(id: string) {
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("chat_sessions")
-    .delete()
-    .eq("id", id);
+  const { error } = await supabase.from("chat_sessions").delete().eq("id", id);
 
   if (error) throw error;
-}
-
-export async function getMessages(sessionId: string): Promise<ChatMessage[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("chat_messages")
-    .select("id, session_id, role, content, created_at, user_id")
-    .eq("session_id", sessionId)
-    .order("created_at", { ascending: true })
-    .limit(200);
-
-  if (error) throw error;
-  return data ?? [];
 }
 
 export async function saveMessage(
