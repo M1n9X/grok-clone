@@ -26,17 +26,17 @@ const MODEL_CONFIG: Record<
   }
 > = {
   fast: {
-    model: process.env.OPENAI_MODEL_FAST ?? "grok-4.3",
+    model: process.env.OPENAI_MODEL_FAST ?? "grok-4.5",
     reasoningEffort: "low",
     statusLabel: "Starting fast response",
   },
   auto: {
-    model: process.env.OPENAI_MODEL_AUTO ?? "grok-4.3",
+    model: process.env.OPENAI_MODEL_AUTO ?? "grok-4.5",
     reasoningEffort: "medium",
     statusLabel: "Thinking",
   },
   expert: {
-    model: process.env.OPENAI_MODEL_EXPERT ?? "grok-4.3",
+    model: process.env.OPENAI_MODEL_EXPERT ?? "grok-4.5",
     reasoningEffort: "high",
     statusLabel: "Thinking",
   },
