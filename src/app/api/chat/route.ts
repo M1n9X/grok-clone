@@ -20,18 +20,19 @@ const MODEL_CONFIG: Record<
   ModelMode,
   {
     model: string;
+    // grok-4.5 supports low/medium/high only (reasoning cannot be disabled).
     reasoningEffort: "none" | "low" | "medium" | "high";
     statusLabel: string;
   }
 > = {
   fast: {
     model: process.env.OPENAI_MODEL_FAST ?? "grok-4.3",
-    reasoningEffort: "none",
+    reasoningEffort: "low",
     statusLabel: "Starting fast response",
   },
   auto: {
     model: process.env.OPENAI_MODEL_AUTO ?? "grok-4.3",
-    reasoningEffort: "low",
+    reasoningEffort: "medium",
     statusLabel: "Thinking",
   },
   expert: {
