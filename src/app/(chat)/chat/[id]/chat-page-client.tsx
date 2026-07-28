@@ -136,6 +136,8 @@ export default function ChatPageClient({
       let eventThinking = "";
       let taggedThinking = "";
       let lineBuffer = "";
+      let wasAborted = false;
+      let incompleteReason: string | undefined;
       const streamStartedAt = Date.now();
 
       const streamState: MessageStreamState = {
@@ -203,6 +205,87 @@ export default function ChatPageClient({
         const reader = res.body?.getReader();
         const decoder = new TextDecoder();
 
+        const applyEvent = (event: NonNullable<ReturnType<typeof decodeStreamEventLine>>) => {
+          if (event.type === "status") {
+            streamState.status = event.label;
+            scheduleFlush();
+          }
+
+          if (event.type === "thinking") {
+            eventThinking += event.delta;
+            streamState.status = "Thinking";
+            streamState.thinking = `${eventThinking}${taggedThinking}`;
+            scheduleFlush();
+          }
+
+          if (event.type === "tool") {
+            streamState.status = `Using ${event.name}`;
+            // Deduplicate consecutive identical tool chips from added+done pairs.
+            const last = streamState.tools[streamState.tools.length - 1];
+            if (last !== event.name) {
+              streamState.tools = [...streamState.tools, event.name];
+            }
+            scheduleFlush();
+          }
+
+          if (event.type === "citations") {
+            streamState.citations = mergeCitations(
+              streamState.citations,
+              event.citations
+            );
+            scheduleFlush();
+          }
+
+          if (event.type === "text") {
+            rawTextContent += event.delta;
+            const hasTag =
+              rawTextContent.includes("<thinking_summary") ||
+              rawTextContent.endsWith("<") ||
+              taggedThinking !== "";
+            if (hasTag) {
+              const parsed = parseTaggedThinkingSummary(rawTextContent);
+              fullContent = parsed.content;
+              taggedThinking = parsed.thinking
+                ? `${eventThinking ? "\n\n" : ""}${parsed.thinking}`
+                : "";
+              streamState.status = parsed.open
+                ? "Thinking"
+                : "Responding";
+              streamState.thinking = `${eventThinking}${taggedThinking}`;
+            } else {
+              fullContent = rawTextContent;
+              streamState.status = "Responding";
+            }
+            streamState.firstTokenAt =
+              streamState.firstTokenAt ?? Date.now();
+            streamState.chunks += 1;
+            scheduleFlush();
+          }
+
+          if (event.type === "usage") {
+            streamState.inputTokens = event.inputTokens;
+            streamState.outputTokens = event.outputTokens;
+            streamState.reasoningTokens = event.reasoningTokens;
+            streamState.totalTokens = event.totalTokens;
+            scheduleFlush();
+          }
+
+          if (event.type === "incomplete") {
+            incompleteReason = event.reason;
+            streamState.status =
+              event.reason === "search_tools_unavailable"
+                ? "Search unavailable — completing"
+                : event.reason === "max_output_tokens"
+                  ? "Truncated (token limit)"
+                  : "Incomplete";
+            scheduleFlush();
+          }
+
+          if (event.type === "error") {
+            throw new Error(event.message);
+          }
+        };
+
         if (reader) {
           while (true) {
             const { done, value } = await reader.read();
@@ -215,71 +298,16 @@ export default function ChatPageClient({
             for (const line of lines) {
               const event = decodeStreamEventLine(line);
               if (!event) continue;
-
-              if (event.type === "status") {
-                streamState.status = event.label;
-                scheduleFlush();
-              }
-
-              if (event.type === "thinking") {
-                eventThinking += event.delta;
-                streamState.status = "Thinking";
-                streamState.thinking = `${eventThinking}${taggedThinking}`;
-                scheduleFlush();
-              }
-
-              if (event.type === "tool") {
-                streamState.status = `Using ${event.name}`;
-                streamState.tools = [...streamState.tools, event.name];
-                scheduleFlush();
-              }
-
-              if (event.type === "citations") {
-                streamState.citations = mergeCitations(
-                  streamState.citations,
-                  event.citations
-                );
-                scheduleFlush();
-              }
-
-              if (event.type === "text") {
-                rawTextContent += event.delta;
-                const hasTag =
-                  rawTextContent.includes("<thinking_summary") ||
-                  rawTextContent.endsWith("<") ||
-                  taggedThinking !== "";
-                if (hasTag) {
-                  const parsed = parseTaggedThinkingSummary(rawTextContent);
-                  fullContent = parsed.content;
-                  taggedThinking = parsed.thinking
-                    ? `${eventThinking ? "\n\n" : ""}${parsed.thinking}`
-                    : "";
-                  streamState.status = parsed.open
-                    ? "Thinking"
-                    : "Responding";
-                  streamState.thinking = `${eventThinking}${taggedThinking}`;
-                } else {
-                  fullContent = rawTextContent;
-                  streamState.status = "Responding";
-                }
-                streamState.firstTokenAt =
-                  streamState.firstTokenAt ?? Date.now();
-                streamState.chunks += 1;
-                scheduleFlush();
-              }
-
-              if (event.type === "usage") {
-                streamState.inputTokens = event.inputTokens;
-                streamState.outputTokens = event.outputTokens;
-                streamState.reasoningTokens = event.reasoningTokens;
-                streamState.totalTokens = event.totalTokens;
-                scheduleFlush();
-              }
-
-              if (event.type === "error") {
-                throw new Error(event.message);
-              }
+              applyEvent(event);
             }
+          }
+
+          // Flush decoder end + final NDJSON line without trailing newline.
+          lineBuffer += decoder.decode();
+          if (lineBuffer.trim()) {
+            const event = decodeStreamEventLine(lineBuffer);
+            if (event) applyEvent(event);
+            lineBuffer = "";
           }
         }
 
@@ -289,12 +317,15 @@ export default function ChatPageClient({
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
-          // User cancelled
+          wasAborted = true;
+          // Keep any partial content; mark status in finally.
         } else {
           const errorMessage =
             err instanceof Error ? err.message : "Unknown error";
           console.error("Chat error:", errorMessage);
-          fullContent = `⚠️ ${errorMessage}`;
+          fullContent = fullContent.trim()
+            ? `${fullContent}\n\n⚠️ ${errorMessage}`
+            : `⚠️ ${errorMessage}`;
         }
       } finally {
         if (flushTimer !== null) {
@@ -318,9 +349,15 @@ export default function ChatPageClient({
         const persistContent = injectCitationLinks(fullContent, finalCitations);
 
         streamState.citations = finalCitations;
-        streamState.status = fullContent.trim()
-          ? "Complete"
-          : streamState.status;
+        if (wasAborted) {
+          streamState.status = fullContent.trim() ? "Stopped" : "Stopped";
+        } else if (incompleteReason === "max_output_tokens") {
+          streamState.status = "Truncated (token limit)";
+        } else if (incompleteReason && incompleteReason !== "search_tools_unavailable") {
+          streamState.status = "Incomplete";
+        } else if (fullContent.trim()) {
+          streamState.status = "Complete";
+        }
         streamState.completedAt = Date.now();
 
         setMessages((prev) =>

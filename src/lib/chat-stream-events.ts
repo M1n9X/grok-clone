@@ -19,14 +19,31 @@ export type ChatStreamEvent =
       reasoningTokens?: number;
       totalTokens?: number;
     }
+  | {
+      type: "incomplete";
+      reason: string;
+      message?: string;
+    }
   | { type: "error"; message: string }
   | { type: "done" };
 
 type UnknownRecord = Record<string, unknown>;
 type ReasoningEffort = "none" | "low" | "medium" | "high";
 
+/** Default output budget for reasoning models (reasoning tokens count against this). */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
+
 export const THINKING_SUMMARY_INSTRUCTION =
-  "Before the final answer, provide a concise reasoning summary inside <thinking_summary>...</thinking_summary>. Summarize the approach, searches, and checks without exposing private chain-of-thought.";
+  "Before the final answer, provide a concise reasoning summary inside <thinking_summary>...</thinking_summary>. Summarize the approach, searches, and checks without exposing private chain-of-thought. Keep the summary brief — the final answer must be complete and self-contained.";
+
+export const SEARCH_TOOLS_AVAILABLE_INSTRUCTION =
+  "You have live search tools available for this request. For current events, benchmarks, prices, releases, or anything time-sensitive you MUST actually invoke the search tools before answering. Never end the response by only promising to search, announcing that you are searching, or listing planned queries — produce the full answer after tools run.";
+
+export const SEARCH_TOOLS_UNAVAILABLE_INSTRUCTION =
+  "You cannot perform live web or X search in this environment. Never say you will search, are searching, or will look something up online. Immediately provide the fullest useful answer from your knowledge, and clearly mark uncertainty about very recent events.";
+
+export const SEARCH_CONTINUATION_INSTRUCTION =
+  "Your previous reply only announced a search or planned next steps and did not deliver the requested answer. Live search tools did not run for that turn. Now provide a complete answer from your best available knowledge. Do not announce further searches. Clearly mark uncertainty about very recent events.";
 
 export interface BuildModelRequestOptions {
   baseURL: string;
@@ -36,12 +53,22 @@ export interface BuildModelRequestOptions {
   webSearch: boolean;
   xSearch: boolean;
   forceResponsesApi?: boolean;
+  /** Override default max output tokens (reasoning counts against this). */
+  maxOutputTokens?: number;
 }
 
 export interface BuiltModelRequest {
   url: string;
   useResponsesApi: boolean;
   body: UnknownRecord;
+}
+
+export interface StreamPipeStats {
+  textChars: number;
+  thinkingChars: number;
+  toolCalls: number;
+  incompleteReason?: string;
+  finishReason?: string;
 }
 
 export function encodeStreamEvent(event: ChatStreamEvent) {
@@ -67,6 +94,7 @@ export function buildModelRequest({
   webSearch,
   xSearch,
   forceResponsesApi,
+  maxOutputTokens = DEFAULT_MAX_OUTPUT_TOKENS,
 }: BuildModelRequestOptions): BuiltModelRequest {
   const normalizedBaseURL = baseURL.replace(/\/$/, "");
   const baseIsResponses = normalizedBaseURL.endsWith("/responses");
@@ -77,10 +105,12 @@ export function buildModelRequest({
       model.startsWith("grok-") &&
       !baseIsChatCompletions);
 
+  const toolsRequested = webSearch || xSearch;
   const includeReasoning = reasoningEffort !== "none";
-  const processedMessages = includeReasoning
-    ? withThinkingSummaryInstruction(messages)
-    : messages;
+  const processedMessages = withSystemInstructions(messages, {
+    includeThinkingSummary: includeReasoning,
+    toolsRequested,
+  });
 
   if (useResponsesApi) {
     const tools = [
@@ -95,6 +125,7 @@ export function buildModelRequest({
         model,
         input: processedMessages,
         stream: true,
+        max_output_tokens: maxOutputTokens,
         ...(includeReasoning
           ? { reasoning: { effort: reasoningEffort } }
           : {}),
@@ -104,7 +135,10 @@ export function buildModelRequest({
     };
   }
 
-  const tools = xSearch ? [{ type: "x_search" }] : [];
+  const tools = [
+    ...(webSearch ? [{ type: "web_search" }] : []),
+    ...(xSearch ? [{ type: "x_search" }] : []),
+  ];
   return {
     url: baseIsChatCompletions
       ? normalizedBaseURL
@@ -114,10 +148,75 @@ export function buildModelRequest({
       model,
       messages: processedMessages,
       stream: true,
+      max_tokens: maxOutputTokens,
       ...(includeReasoning ? { reasoning_effort: reasoningEffort } : {}),
       ...(tools.length > 0 ? { tools } : {}),
     },
   };
+}
+
+/**
+ * Detect replies that only announce a search / plan next steps without
+ * delivering the actual answer — a common failure mode when server-side
+ * search tools are advertised but not executed by the upstream provider.
+ */
+export function looksLikeSearchPrelude(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  if (trimmed.length > 900) return false;
+
+  const lower = trimmed.toLowerCase();
+  const announcePatterns = [
+    /正在(联网)?(搜索|检索|查找|查询)/,
+    /联网(搜索|检索)/,
+    /我会先/,
+    /让我先?(搜索|检索|查找|查一下|看看)/,
+    /先进行多组?关键词/,
+    /先(确认|检索|搜索|查找)/,
+    /查(询|找|一下).*(最新|信息|测评|benchmark)/i,
+    /i('|\s)?ll (search|look up|check|find|retrieve)/i,
+    /i am (now )?(searching|looking up|checking|retrieving)/i,
+    /let me (search|look up|check|find|retrieve)/i,
+    /searching (the )?(web|online|for)/i,
+    /looking up .{0,40}(for you|online|now)/i,
+    /i('|\s)?ll (use|run|call) .*(search|tool)/i,
+  ];
+  const hasAnnounce = announcePatterns.some((re) => re.test(lower) || re.test(trimmed));
+  if (!hasAnnounce) return false;
+
+  // Short + announces search → almost certainly a prelude.
+  if (trimmed.length < 350) return true;
+
+  // Medium length but still mostly planning language, little substance.
+  const substanceHints =
+    /(benchmark|评测|分数|得分|leaderboard|结果|根据|目前|具体|数据|source|http|\[\d+\])/i;
+  return !substanceHints.test(trimmed);
+}
+
+export function messageRequestsLiveSearch(text: string): boolean {
+  return /联网搜索|上网(查|搜)|实时搜索|搜索一下|查一下最新|look\s*up|search\s+(the\s+)?(web|online|internet)|google\s+it|latest\s+(news|benchmark|eval)/i.test(
+    text
+  );
+}
+
+export function shouldContinueAfterSearchMiss({
+  webSearch,
+  xSearch,
+  toolCalls,
+  text,
+  userMessage,
+}: {
+  webSearch: boolean;
+  xSearch: boolean;
+  toolCalls: number;
+  text: string;
+  userMessage?: string;
+}): boolean {
+  if (toolCalls > 0) return false;
+  const searchExpected =
+    webSearch || xSearch || (userMessage ? messageRequestsLiveSearch(userMessage) : false);
+  if (!searchExpected) return false;
+  return looksLikeSearchPrelude(text);
 }
 
 export function parseTaggedThinkingSummary(rawText: string) {
@@ -187,6 +286,22 @@ export function extractChatCompletionEvents(payload: UnknownRecord) {
     }
   }
 
+  const finishReason = firstString(choice?.finish_reason);
+  if (finishReason === "length") {
+    events.push({
+      type: "incomplete",
+      reason: "max_output_tokens",
+      message:
+        "Response was cut off because the output token limit was reached.",
+    });
+  } else if (finishReason && finishReason !== "stop" && finishReason !== "tool_calls") {
+    events.push({
+      type: "incomplete",
+      reason: finishReason,
+      message: `Response finished early (${finishReason}).`,
+    });
+  }
+
   const usage = payload.usage as UnknownRecord | undefined;
   const usageEvent = extractUsageEvent(usage);
   if (usageEvent) events.push(usageEvent);
@@ -206,7 +321,12 @@ export function extractResponsesApiEvents(payload: UnknownRecord) {
   const eventType = firstString(payload.type);
   const delta = firstString(payload.delta);
 
-  if (eventType === "response.reasoning_summary_text.delta" && delta) {
+  // grok-4.5 streams both raw reasoning text and a summarized form.
+  if (
+    (eventType === "response.reasoning_summary_text.delta" ||
+      eventType === "response.reasoning_text.delta") &&
+    delta
+  ) {
     events.push({ type: "thinking", delta });
   }
 
@@ -217,7 +337,7 @@ export function extractResponsesApiEvents(payload: UnknownRecord) {
   if (eventType === "response.output_item.added") {
     const item = payload.item as UnknownRecord | undefined;
     const itemType = firstString(item?.type);
-    if (itemType?.includes("search")) {
+    if (itemType?.includes("search") || itemType === "web_search_call" || itemType === "x_search_call") {
       events.push({ type: "tool", name: readableToolName(itemType) });
       const citations = extractCitationsFromSearchItem(item);
       if (citations.length > 0) {
@@ -229,7 +349,7 @@ export function extractResponsesApiEvents(payload: UnknownRecord) {
   if (eventType === "response.output_item.done") {
     const item = payload.item as UnknownRecord | undefined;
     const itemType = firstString(item?.type);
-    if (itemType?.includes("search")) {
+    if (itemType?.includes("search") || itemType === "web_search_call" || itemType === "x_search_call") {
       const citations = extractCitationsFromSearchItem(item);
       if (citations.length > 0) {
         events.push({ type: "citations", citations });
@@ -237,11 +357,51 @@ export function extractResponsesApiEvents(payload: UnknownRecord) {
     }
   }
 
+  if (eventType === "response.incomplete" || eventType === "response.failed") {
+    const response = payload.response as UnknownRecord | undefined;
+    const incomplete = (response?.incomplete_details ??
+      payload.incomplete_details) as UnknownRecord | undefined;
+    const reason =
+      firstString(
+        incomplete?.reason,
+        response?.status,
+        eventType === "response.failed" ? "failed" : "incomplete"
+      ) ?? "incomplete";
+    const providerMessage = firstString(
+      extractErrorMessage(response ?? {}),
+      extractErrorMessage(payload)
+    );
+    const message =
+      providerMessage ??
+      (reason === "max_output_tokens"
+        ? "Response was cut off because the output token limit was reached."
+        : `Response ended incompletely (${reason}).`);
+    const usageEvent = extractUsageEvent(response?.usage as UnknownRecord);
+    if (usageEvent) events.push(usageEvent);
+    events.push({ type: "incomplete", reason, message });
+    return events;
+  }
+
   if (eventType === "response.completed") {
     const response = payload.response as UnknownRecord | undefined;
     const usageEvent = extractUsageEvent(response?.usage as UnknownRecord);
     if (usageEvent) events.push(usageEvent);
-    events.push({ type: "done" });
+
+    const status = firstString(response?.status);
+    if (status === "incomplete") {
+      const incomplete = response?.incomplete_details as UnknownRecord | undefined;
+      const reason = firstString(incomplete?.reason) ?? "incomplete";
+      events.push({
+        type: "incomplete",
+        reason,
+        message:
+          reason === "max_output_tokens"
+            ? "Response was cut off because the output token limit was reached."
+            : `Response ended incompletely (${reason}).`,
+      });
+    }
+    // Terminal done is emitted by the route after the upstream stream ends so
+    // multi-pass continuations can keep the client stream open.
   }
 
   return events;
@@ -312,15 +472,31 @@ function readableToolName(type: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function withThinkingSummaryInstruction(
-  messages: { role: string; content: string }[]
+function withSystemInstructions(
+  messages: { role: string; content: string }[],
+  {
+    includeThinkingSummary,
+    toolsRequested,
+  }: {
+    includeThinkingSummary: boolean;
+    toolsRequested: boolean;
+  }
 ) {
+  const parts: string[] = [];
+  if (includeThinkingSummary) parts.push(THINKING_SUMMARY_INSTRUCTION);
+  parts.push(
+    toolsRequested
+      ? SEARCH_TOOLS_AVAILABLE_INSTRUCTION
+      : SEARCH_TOOLS_UNAVAILABLE_INSTRUCTION
+  );
+  const instruction = parts.join("\n\n");
+
   const [first, ...rest] = messages;
   if (first?.role === "system") {
     return [
       {
         ...first,
-        content: `${first.content}\n\n${THINKING_SUMMARY_INSTRUCTION}`,
+        content: `${first.content}\n\n${instruction}`,
       },
       ...rest,
     ];
@@ -329,7 +505,7 @@ function withThinkingSummaryInstruction(
   return [
     {
       role: "system",
-      content: THINKING_SUMMARY_INSTRUCTION,
+      content: instruction,
     },
     ...messages,
   ];

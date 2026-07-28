@@ -4,7 +4,10 @@ import {
   encodeStreamEvent,
   extractChatCompletionEvents,
   extractResponsesApiEvents,
+  SEARCH_CONTINUATION_INSTRUCTION,
+  shouldContinueAfterSearchMiss,
   type ChatStreamEvent,
+  type StreamPipeStats,
 } from "@/lib/chat-stream-events";
 import {
   CHAT_LIMITS,
@@ -14,7 +17,9 @@ import {
   type ModelMode,
 } from "@/lib/chat-request-guard";
 
-export const maxDuration = 60;
+// Reasoning + optional search can exceed the old 60s ceiling; keep headroom
+// for grok-4.5 medium/high effort on Vercel fluid/pro runtimes.
+export const maxDuration = 300;
 
 const MODEL_CONFIG: Record<
   ModelMode,
@@ -118,6 +123,16 @@ export async function POST(req: Request) {
     );
   }
 
+  const lastUserMessage = [...typedMessages]
+    .reverse()
+    .find((m) => m.role === "user")?.content;
+  // Only the UI toggles attach server-side tools. In-text "请联网搜索" is still
+  // recognized so the no-tools system prompt forbids fake "正在搜索…" preludes
+  // and (if a toggled tool call still misses) continuation can kick in.
+  const webSearchEnabled = Boolean(webSearch);
+  const xSearchEnabled = Boolean(xSearch);
+  const toolsRequested = webSearchEnabled || xSearchEnabled;
+
   const encoder = new TextEncoder();
   let upstreamAbort: AbortController | null = null;
 
@@ -135,63 +150,98 @@ export async function POST(req: Request) {
       };
 
       try {
-        const wantsSearch = Boolean(webSearch) || Boolean(xSearch);
         // One status before the upstream round-trip: search-aware so the UI
         // does not sit on a generic "Thinking" while tools run.
         send({
           type: "status",
-          label: wantsSearch
-            ? webSearch && xSearch
+          label: toolsRequested
+            ? webSearchEnabled && xSearchEnabled
               ? "Searching the web & X"
-              : webSearch
+              : webSearchEnabled
                 ? "Searching the web"
                 : "Searching X"
             : statusLabel,
         });
 
         upstreamAbort = new AbortController();
-        const modelRequest = buildModelRequest({
+        const firstPass = await runModelPass({
           baseURL,
+          apiKey,
           model: resolvedModel,
           messages: typedMessages,
           reasoningEffort,
-          webSearch: Boolean(webSearch),
-          xSearch: Boolean(xSearch),
+          webSearch: webSearchEnabled,
+          xSearch: xSearchEnabled,
           forceResponsesApi,
-        });
-        const apiRes = await fetch(modelRequest.url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify(modelRequest.body),
           signal: upstreamAbort.signal,
+          send,
         });
 
-        if (!apiRes.ok) {
-          const errText = await apiRes.text();
-          console.error("[chat] API error:", apiRes.status, errText);
+        // Many OpenAI-compatible proxies accept web_search/x_search in the
+        // request body but never execute them. Grok then emits a short
+        // "I'll search..." prelude and completes. Detect that and run a
+        // second pass that forces a full knowledge-based answer.
+        //
+        // Also cover the no-tools path: in-text "联网搜索" + UNAVAILABLE
+        // instruction usually yields a full answer in one pass, but if the
+        // model still only announces a search, continue once.
+        if (
+          shouldContinueAfterSearchMiss({
+            webSearch: webSearchEnabled,
+            xSearch: xSearchEnabled,
+            toolCalls: firstPass.toolCalls,
+            text: firstPass.text,
+            userMessage: lastUserMessage,
+          })
+        ) {
           send({
-            type: "error",
-            message: `Model API error (${apiRes.status}): ${errText}`,
+            type: "status",
+            label: "Search tools unavailable — completing answer",
           });
-          close();
-          return;
+          send({
+            type: "incomplete",
+            reason: "search_tools_unavailable",
+            message:
+              "Live search tools did not run; generating a full answer from available knowledge.",
+          });
+
+          // Separate the prelude from the real answer in the visible stream.
+          if (firstPass.text.trim()) {
+            send({ type: "text", delta: "\n\n---\n\n" });
+          }
+
+          const continuationMessages = [
+            ...typedMessages,
+            ...(firstPass.text.trim()
+              ? [{ role: "assistant" as const, content: firstPass.text }]
+              : []),
+            {
+              role: "user" as const,
+              content: SEARCH_CONTINUATION_INSTRUCTION,
+            },
+          ];
+
+          await runModelPass({
+            baseURL,
+            apiKey,
+            model: resolvedModel,
+            messages: continuationMessages,
+            reasoningEffort,
+            // Second pass: do not re-advertise broken tools.
+            webSearch: false,
+            xSearch: false,
+            forceResponsesApi,
+            signal: upstreamAbort.signal,
+            send,
+          });
+        } else if (firstPass.incompleteReason) {
+          // Already forwarded via extractors; keep status informative.
+          send({
+            type: "status",
+            label: "Incomplete response",
+          });
         }
 
-        if (!apiRes.body) {
-          send({ type: "error", message: "No response body from model" });
-          close();
-          return;
-        }
-
-        await pipeSseEvents(
-          apiRes.body,
-          modelRequest.useResponsesApi,
-          reasoningEffort,
-          send,
-        );
         send({ type: "done" });
         close();
       } catch (err) {
@@ -227,15 +277,120 @@ function readPositiveInt(value: string | undefined, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+async function runModelPass({
+  baseURL,
+  apiKey,
+  model,
+  messages,
+  reasoningEffort,
+  webSearch,
+  xSearch,
+  forceResponsesApi,
+  signal,
+  send,
+}: {
+  baseURL: string;
+  apiKey: string;
+  model: string;
+  messages: { role: string; content: string }[];
+  reasoningEffort: "none" | "low" | "medium" | "high";
+  webSearch: boolean;
+  xSearch: boolean;
+  forceResponsesApi?: boolean;
+  signal: AbortSignal;
+  send: (event: ChatStreamEvent) => void;
+}): Promise<StreamPipeStats & { text: string }> {
+  const modelRequest = buildModelRequest({
+    baseURL,
+    model,
+    messages,
+    reasoningEffort,
+    webSearch,
+    xSearch,
+    forceResponsesApi,
+  });
+
+  const apiRes = await fetch(modelRequest.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(modelRequest.body),
+    signal,
+  });
+
+  if (!apiRes.ok) {
+    const errText = await apiRes.text();
+    console.error("[chat] API error:", apiRes.status, errText);
+    send({
+      type: "error",
+      message: `Model API error (${apiRes.status}): ${errText}`,
+    });
+    return { textChars: 0, thinkingChars: 0, toolCalls: 0, text: "" };
+  }
+
+  if (!apiRes.body) {
+    send({ type: "error", message: "No response body from model" });
+    return { textChars: 0, thinkingChars: 0, toolCalls: 0, text: "" };
+  }
+
+  return pipeSseEvents(
+    apiRes.body,
+    modelRequest.useResponsesApi,
+    reasoningEffort,
+    send
+  );
+}
+
 async function pipeSseEvents(
   body: ReadableStream<Uint8Array>,
   useResponsesApi: boolean,
   reasoningEffort: string,
   send: (event: ChatStreamEvent) => void
-) {
+): Promise<StreamPipeStats & { text: string }> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  const stats: StreamPipeStats & { text: string } = {
+    textChars: 0,
+    thinkingChars: 0,
+    toolCalls: 0,
+    text: "",
+  };
+
+  const handleLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed || !trimmed.startsWith("data:")) return;
+    // Accept both "data: {...}" and "data:{...}".
+    const payload = trimmed.startsWith("data: ")
+      ? trimmed.slice(6)
+      : trimmed.slice(5).trim();
+    if (payload === "[DONE]") return;
+
+    try {
+      const json = JSON.parse(payload);
+      const events = useResponsesApi
+        ? extractResponsesApiEvents(json)
+        : extractChatCompletionEvents(json);
+      for (const event of events) {
+        if (reasoningEffort === "none" && event.type === "thinking") continue;
+        if (event.type === "text") {
+          stats.text += event.delta;
+          stats.textChars += event.delta.length;
+        } else if (event.type === "thinking") {
+          stats.thinkingChars += event.delta.length;
+        } else if (event.type === "tool") {
+          stats.toolCalls += 1;
+        } else if (event.type === "incomplete") {
+          stats.incompleteReason = event.reason;
+        }
+        send(event);
+      }
+    } catch {
+      // Ignore comments and malformed upstream lines.
+    }
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -246,24 +401,16 @@ async function pipeSseEvents(
     buffer = lines.pop() ?? "";
 
     for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith("data: ")) continue;
-
-      const payload = trimmed.slice(6);
-      if (payload === "[DONE]") return;
-
-      try {
-        const json = JSON.parse(payload);
-        const events = useResponsesApi
-          ? extractResponsesApiEvents(json)
-          : extractChatCompletionEvents(json);
-        for (const event of events) {
-          if (reasoningEffort === "none" && event.type === "thinking") continue;
-          send(event);
-        }
-      } catch {
-        // Ignore comments and malformed upstream lines.
-      }
+      handleLine(line);
     }
   }
+
+  // Flush decoder end + any final line without a trailing newline.
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    handleLine(buffer);
+    buffer = "";
+  }
+
+  return stats;
 }
